@@ -1,0 +1,240 @@
+@import "tailwindcss";
+
+/* === Design System === */
+:root {
+  --background: #0b0f1a;
+  --foreground: #e8ecf4;
+  --surface: #131825;
+  --surface-hover: #1a2033;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.15);
+
+  --primary: #6c63ff;
+  --primary-hover: #7d75ff;
+  --primary-glow: rgba(108, 99, 255, 0.25);
+
+  --accent-green: #34d399;
+  --accent-amber: #fbbf24;
+  --accent-rose: #fb7185;
+  --accent-sky: #38bdf8;
+  --accent-violet: #a78bfa;
+
+  --text-primary: #e8ecf4;
+  --text-secondary: #8b95a8;
+  --text-muted: #5a6478;
+
+  --glass-bg: rgba(19, 24, 37, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: 16px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 24px var(--primary-glow);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-accent-green: var(--accent-green);
+  --color-accent-amber: var(--accent-amber);
+  --color-accent-rose: var(--accent-rose);
+  --color-accent-sky: var(--accent-sky);
+  --color-accent-violet: var(--accent-violet);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* === Base === */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Background gradient mesh */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 20%, rgba(108, 99, 255, 0.08), transparent),
+    radial-gradient(ellipse 60% 50% at 90% 80%, rgba(56, 189, 248, 0.06), transparent),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(167, 139, 250, 0.04), transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* === Scrollbar === */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* === Glass Card === */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+/* === Shimmer Animation === */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--surface-hover) 50%,
+    var(--surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* === Fade In Animation === */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* === Pulse Glow === */
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--primary-glow);
+  }
+  50% {
+    box-shadow: 0 0 20px var(--primary-glow);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+/* === Spin === */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* === Slide Down === */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out forwards;
+  overflow: hidden;
+}
+
+/* === Activity Type Badges === */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.badge-food {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--accent-amber);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+.badge-sightseeing {
+  background: rgba(108, 99, 255, 0.12);
+  color: var(--primary);
+  border: 1px solid rgba(108, 99, 255, 0.2);
+}
+
+.badge-transport {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent-sky);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.badge-accommodation {
+  background: rgba(167, 139, 250, 0.12);
+  color: var(--accent-violet);
+  border: 1px solid rgba(167, 139, 250, 0.2);
+}
+
+.badge-activity {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--accent-green);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+}
+
+/* === Drag Overlay === */
+.drag-overlay {
+  opacity: 0.9;
+  transform: scale(1.02);
+  box-shadow: var(--shadow-lg);
+  cursor: grabbing;
+}
+
+.dragging {
+  opacity: 0.4;
+}

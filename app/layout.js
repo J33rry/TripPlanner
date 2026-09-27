@@ -1,6 +1,7 @@
 import { Outfit } from "next/font/google";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
+import RoamShell from "@/components/RoamShell";
 
 // Geometric display face for the "roam" wordmark and headings.
 const outfit = Outfit({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-display" });
@@ -21,7 +22,10 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={outfit.variable}>
-      <body>{children}</body>
+      <body>
+        {/* Persistent shell: survives navigation between Home and Trips. */}
+        <RoamShell>{children}</RoamShell>
+      </body>
     </html>
   );
 }

@@ -51,11 +51,20 @@ const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 /
 const easeInCubic = (t) => t * t * t;
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
 
-/** Where the globe sits on the home screen (CSS pixels). Mirrored in globals.css. */
-function homeLayout(width, height) {
-  if (width < 760) {
+/**
+ * Where the globe rests for each screen (CSS pixels). The stacked phone
+ * layouts are mirrored by the padding in globals.css.
+ */
+function homeLayout(width, height, screen = "home") {
+  const stacked = width < (screen === "trips" ? 900 : 760);
+  if (stacked) {
     const r = Math.min(width * 0.36, height * 0.24);
     return { cx: width / 2, cy: r + 52, r };
+  }
+  if (screen === "trips") {
+    // Left column beside the "Your trips" panel.
+    const r = Math.min(height * 0.4, width * 0.235);
+    return { cx: width * 0.29, cy: height * 0.5, r };
   }
   const r = Math.min(height * 0.335, width * 0.25);
   return { cx: width * 0.535, cy: height * 0.44, r };
@@ -70,7 +79,7 @@ function ringBasis(ring, t) {
   return { u, v };
 }
 
-export default function DestinationGlobe({ destinations, mode = "idle", target, hidden, intro, disabled, onSelect, onArrive }) {
+export default function DestinationGlobe({ destinations, screen = "home", mode = "idle", target, hidden, intro, focusId, disabled, onSelect, onArrive }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const markerRefs = useRef({});
@@ -78,10 +87,24 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
   const images = usePlaceImages(destinations.map((d) => d.landmark));
 
   // Props read inside the animation loop without restarting it.
-  const live = useRef({ mode, target, hidden, intro, activeId, onArrive });
+  const live = useRef({ mode, screen, target, hidden, intro, focusId, activeId, onArrive });
   useEffect(() => {
-    live.current = { mode, target, hidden, intro, activeId, onArrive };
+    live.current = { mode, screen, target, hidden, intro, focusId, activeId, onArrive };
   });
+
+  // Markers change with the route (suggestions on Home, saved trips on
+  // Trips); keep them in a ref so the render loop never restarts.
+  const markersRef = useRef([]);
+  useEffect(() => {
+    markersRef.current = destinations.map((d) => ({
+      id: d.id,
+      lat: d.latitude,
+      lon: d.longitude,
+      world: worldVector(d.latitude, d.longitude),
+      labelSide: d.labelSide || "right",
+      labelWidth: 20 + d.name.length * 8, // ≈ rendered width of the 14px label pill
+    }));
+  }, [destinations]);
   const focusRequest = useRef(null);
 
   useEffect(() => {
@@ -93,7 +116,6 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
     const land = buildLandDots();
     const ocean = buildSphereDots(OCEAN_DOTS);
     const arcs = ARCS.map((arc) => ({ ...arc, points: buildArc(arc.from, arc.to) }));
-    const markers = destinations.map((d) => ({ id: d.id, world: worldVector(d.latitude, d.longitude) }));
 
     // Per-frame scratch space for batching dots by colour family × alpha level.
     const bucketCount = 3 * ALPHA_LEVELS;
@@ -122,7 +144,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       canvas.width = Math.round(rect.width * state.dpr);
       canvas.height = Math.round(rect.height * state.dpr);
       // Snap to the new framing (the arrival dive computes its own).
-      if (!state.arrival) state.layout = homeLayout(rect.width, rect.height);
+      if (!state.arrival) state.layout = homeLayout(rect.width, rect.height, live.current.screen);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(wrap);
@@ -256,7 +278,10 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       // rAF timestamps can trail performance.now(), so clamp away negative steps.
       const dt = Math.max(0, Math.min(0.05, (now - state.last) / 1000));
       state.last = now;
-      const { mode: currentMode, target: currentTarget, hidden: isHidden, intro, activeId: hovered } = live.current;
+      const { mode: currentMode, target: currentTarget, hidden: isHidden, intro, focusId, activeId } = live.current;
+      const markers = markersRef.current;
+      // A hovered marker, or a trip hovered in the list, is highlighted.
+      const hovered = activeId || focusId;
       if (isHidden || document.hidden || !state.width) return;
 
       // Intro: stay blank under the splash, then grow out of its compass.
@@ -290,7 +315,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
         state.lastMode = currentMode;
       }
 
-      const home = homeLayout(state.width, state.height);
+      const home = homeLayout(state.width, state.height, live.current.screen);
       let ringFade = 1;
       let markerFade = 1;
       let introProgress = 1;
@@ -344,9 +369,11 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
         if (Math.abs(state.orb - orbTarget) < 0.002) state.orb = orbTarget;
         markerFade = 1 - state.orb;
 
-        if (focusRequest.current) {
-          // Keyboard focus on a marker: bring it round to face the viewer.
-          const f = focusRequest.current;
+        const listFocus = focusId && markers.find((m) => m.id === focusId);
+        if (focusRequest.current || listFocus) {
+          // Keyboard focus on a marker, or its trip hovered in the list:
+          // bring it round to face the viewer.
+          const f = focusRequest.current || listFocus;
           const kf = 1 - Math.exp(-dt * 5);
           state.lon += shortestDelta(state.lon, f.lon) * kf;
           state.lat += (Math.max(-MAX_TILT, Math.min(MAX_TILT, f.lat)) - state.lat) * kf;
@@ -475,17 +502,34 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       }
 
       // Destination markers: glow on canvas, label/hit area as HTML overlay.
+      const placed = [];
       for (const marker of markers) {
         const [x, y, z] = toView(marker.world[0], marker.world[1], marker.world[2], view);
         const [sx, sy] = project(x, y, r, cx, cy);
         const visible = z > 0.12 ? Math.min(1, (z - 0.12) / 0.15) * markerFade : 0;
         if (visible > 0) glowDot(sx, sy, marker.id === hovered ? 5 : 3.8, visible);
+        placed.push({ marker, sx, sy, visible });
+      }
+      // Place labels like a map does: the hovered marker first, then each on
+      // its preferred side, else the other side, else dot only (shown on hover).
+      placed.sort((a, b) => (b.marker.id === hovered) - (a.marker.id === hovered));
+      const boxes = [];
+      for (const { marker, sx, sy, visible } of placed) {
         const el = markerRefs.current[marker.id];
-        if (el) {
-          el.style.transform = `translate(${sx}px, ${sy}px)`;
-          el.style.opacity = visible.toFixed(3);
-          el.dataset.hidden = visible < 0.3 ? "true" : "false";
-        }
+        if (!el) continue;
+        el.style.transform = `translate(${sx}px, ${sy}px)`;
+        el.style.opacity = visible.toFixed(3);
+        el.dataset.hidden = visible < 0.3 ? "true" : "false";
+        if (visible < 0.3) continue;
+        const width = marker.labelWidth;
+        const boxFor = (side) => (side === "left" ? [sx - 12 - width, sy - 13, sx - 6, sy + 13] : [sx + 6, sy - 13, sx + 12 + width, sy + 13]);
+        const clear = (box) => boxes.every((o) => box[2] < o[0] || box[0] > o[2] || box[3] < o[1] || box[1] > o[3]);
+        const sides = marker.labelSide === "left" ? ["left", "right"] : ["right", "left"];
+        const side = sides.find((candidate) => clear(boxFor(candidate)));
+        el.dataset.side = side || sides[0];
+        el.dataset.label = side || marker.id === hovered ? "shown" : "hidden";
+        // A dot-only marker still keeps other labels off its dot.
+        boxes.push(side ? boxFor(side) : [sx - 6, sy - 6, sx + 6, sy + 6]);
       }
     };
     frame = requestAnimationFrame(tick);
@@ -498,7 +542,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
     };
-  }, [destinations]);
+  }, []);
 
   const closeTimer = useRef(null);
   const open = (id) => {
@@ -516,14 +560,14 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
   return (
     <div className={`globe mode-${mode} ${hidden ? "is-hidden" : ""}`} ref={wrapRef}>
       <canvas ref={canvasRef} className="globe-canvas" aria-hidden="true" />
-      <div className="globe-markers" aria-label="Suggested destinations" hidden={!interactive}>
+      <div className="globe-markers" aria-label={screen === "trips" ? "Your trip destinations" : "Suggested destinations"} hidden={!interactive}>
         {destinations.map((destination) => {
           const isActive = activeId === destination.id;
           const image = images[destination.landmark];
           return (
             <div
               key={destination.id}
-              className={`globe-marker label-${destination.labelSide || "right"} ${isActive ? "is-active" : ""}`}
+              className={`globe-marker ${isActive ? "is-active" : ""}`}
               ref={(el) => { markerRefs.current[destination.id] = el; }}
               onPointerEnter={() => open(destination.id)}
               onPointerLeave={scheduleClose}
@@ -533,7 +577,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
                 type="button"
                 className="marker-pin"
                 aria-expanded={isActive}
-                aria-label={`${destination.name}, ${destination.region}`}
+                aria-label={destination.cardTitle}
                 onClick={() => (isActive ? setActiveId(null) : open(destination.id))}
                 onFocus={() => {
                   focusRequest.current = { lat: destination.latitude, lon: destination.longitude };
@@ -547,16 +591,16 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
                 <div className="marker-card" onPointerEnter={() => open(destination.id)}>
                   <div className="marker-card-image" style={image ? { backgroundImage: `url("${image}")` } : undefined} aria-hidden="true" />
                   <div className="marker-card-body">
-                    <h3>{destination.name}, {destination.region}</h3>
-                    <p>{destination.note}</p>
+                    <h3>{destination.cardTitle}</h3>
+                    <p>{destination.cardText}</p>
                     <button
                       type="button"
                       className="dark-pill"
                       disabled={disabled}
                       onFocus={() => open(destination.id)}
-                      onClick={() => { setActiveId(null); onSelect(destination.prompt); }}
+                      onClick={() => { setActiveId(null); onSelect(destination); }}
                     >
-                      Plan a trip here <span aria-hidden="true">→</span>
+                      {destination.actionLabel} <span aria-hidden="true">→</span>
                     </button>
                   </div>
                 </div>

@@ -34,4 +34,5 @@ export const ArrowIcon = () => <svg {...base}><path d="M5 12h14M13 6l6 6-6 6" />
 export const BookmarkIcon = () => <svg {...base}><path d="M7 4h10v16l-5-3.5L7 20V4Z" /></svg>;
 export const PlusIcon = () => <svg {...base}><path d="M12 5v14M5 12h14" /></svg>;
 export const TrashIcon = () => <svg {...base}><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13" /></svg>;
-export const CheckIcon = () => <svg {...base}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>;
+export const SearchIcon = () => <svg {...base}><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>;
+export const CheckIcon =() => <svg {...base}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>;

@@ -26,7 +26,9 @@ The API key is read by the server route at `app/api/generate/route.js`; it is no
 - **Trip map**: numbered pins for every activity, per-day street routes (walking in a city, driving between spread-out stops, straight lines for long hops or if routing fails), a route legend with distance and time, day focus, and hover/click sync between map and list.
 - **Itinerary panel**: day cards, place photos, inline editing, done/remove menu, drag-and-drop reordering of activities and days, packing list, tips, and AI refinement ("Make day 2 more relaxed…").
 - Server-side Groq requests with strict JSON-schema output, Zod validation, retry, cancellation/stale-response protection, and structured errors.
-- Browser-local trip saving, reopening and deletion (five shown on the home screen, ten kept).
+- **Trips page** (`/trips`, "Trips" in the navbar): every saved trip with search, a globe marker at each trip's destination (hover a trip to turn the globe to it), and the same globe → map dive when a trip or marker is opened.
+- Browser-local trip saving, reopening and deletion (five on the home screen, all on the Trips page, ten kept).
+- The globe, intro and open trip live in a persistent shell (`components/RoamShell.js`, rendered by `app/layout.js`), so moving between Home and Trips keeps the same globe and just glides it to the new framing.
 - Responsive (side panel on desktop, bottom sheet on phones) and reduced-motion aware.
 
 ## External services

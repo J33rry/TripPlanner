@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import ErrorBanner from "./ErrorBanner";
-import { useRoam } from "./RoamShell";
+import { tripHref, useRoam } from "./RoamShell";
 import { ArrowIcon, CloseIcon, SparkleIcon } from "./icons";
 import { placeTitle, savedMeta } from "@/lib/tripDisplay";
 
 const RECENT_LIMIT = 5;
 
 export default function HomeScreen() {
-  const { view, loading, error, prompt, setPrompt, generateFromPrompt, cancel, clearError, retryLastRequest, savedTrips, images, openTrip, deleteSaved } = useRoam();
+  const { view, loading, error, prompt, setPrompt, generateFromPrompt, cancel, clearError, retryLastRequest, savedTrips, images, deleteSaved } = useRoam();
 
   return (
     <div className="home-ui" aria-hidden={view === "arriving"}>
@@ -26,14 +26,14 @@ export default function HomeScreen() {
               const image = images[placeTitle(saved.data)];
               return (
                 <li key={saved.id}>
-                  <button type="button" className="recent-open" onClick={() => openTrip(saved.data)} disabled={loading}>
+                  <Link href={tripHref(saved)} className="recent-open">
                     <span className={`recent-thumb tint-${index % 5}`} style={image ? { backgroundImage: `url("${image}")` } : undefined} aria-hidden="true" />
                     <span className="recent-text">
                       <strong>{saved.title}</strong>
                       <small>{savedMeta(saved)}</small>
                     </span>
                     <span className="recent-chevron" aria-hidden="true">›</span>
-                  </button>
+                  </Link>
                   <button type="button" className="icon-button recent-delete" onClick={() => deleteSaved(saved.id)} aria-label={`Delete ${saved.title}`}>
                     <CloseIcon />
                   </button>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRoam } from "./RoamShell";
+import { tripHref, useRoam } from "./RoamShell";
 import { ChevronIcon, CloseIcon, SearchIcon } from "./icons";
 import { dayCount, destinationLabel, placeTitle } from "@/lib/tripDisplay";
 
@@ -15,7 +15,7 @@ const matches = (saved, query) => {
 };
 
 export default function TripsScreen() {
-  const { view, loading, savedTrips, images, openTrip, deleteSaved, focusSavedTrip } = useRoam();
+  const { view, savedTrips, images, deleteSaved, focusSavedTrip } = useRoam();
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const visible = q ? savedTrips.filter((saved) => matches(saved, q)) : savedTrips;
@@ -48,13 +48,11 @@ export default function TripsScreen() {
               const image = images[placeTitle(saved.data)];
               return (
                 <li key={saved.id} onPointerEnter={() => focusSavedTrip(saved.id)} onPointerLeave={() => focusSavedTrip(null)}>
-                  <button
-                    type="button"
+                  <Link
+                    href={tripHref(saved)}
                     className="trip-card"
-                    onClick={() => openTrip(saved.data)}
                     onFocus={() => focusSavedTrip(saved.id)}
                     onBlur={() => focusSavedTrip(null)}
-                    disabled={loading}
                   >
                     <span className={`trip-card-image tint-${index % 5}`} style={image ? { backgroundImage: `url("${image}")` } : undefined} aria-hidden="true" />
                     <span className="trip-card-text">
@@ -62,7 +60,7 @@ export default function TripsScreen() {
                       <small>{destinationLabel(saved.data)} · {dayCount(saved.data)}</small>
                     </span>
                     <span className="trip-card-chevron" aria-hidden="true"><ChevronIcon /></span>
-                  </button>
+                  </Link>
                   <button type="button" className="icon-button trip-card-delete" onClick={() => deleteSaved(saved.id)} aria-label={`Delete ${saved.title}`}>
                     <CloseIcon />
                   </button>

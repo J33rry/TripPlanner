@@ -24,6 +24,8 @@ const ARRIVE_ROTATE_S = 1.5;
 const ARRIVE_ZOOM_START_S = 0.35;
 const ARRIVE_TOTAL_S = 2.1;
 const INTRO_GROW_S = 1.35; // compass → globe at the end of the intro
+// Home ⇄ Trips flick: decays with the drag inertia (×1/2.5 s) ≈ 60° of turn.
+const SCREEN_SPIN_DEG_PER_S = 150;
 
 // ── AI orb ────────────────────────────────────────────────────────────────
 // While thinking, every dot leaves its continent and swirls around one of
@@ -132,6 +134,7 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       arrival: null,
       lastMode: "idle",
       arrivedFired: false,
+      screen: null, // last screen framed, to spin on Home ⇄ Trips
       introGrow: null, // { start, from } while growing out of the intro compass
       last: performance.now(),
     };
@@ -296,6 +299,12 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       }
       const still = reducedMotion.matches;
       state.clock += dt;
+
+      // A little spin while gliding between Home and Trips (opposite ways).
+      if (live.current.screen !== state.screen) {
+        if (state.screen && !still) state.velocity = (live.current.screen === "trips" ? 1 : -1) * SCREEN_SPIN_DEG_PER_S;
+        state.screen = live.current.screen;
+      }
 
       // Mode transitions
       if (currentMode !== state.lastMode) {

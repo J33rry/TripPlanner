@@ -189,7 +189,13 @@ svg { flex-shrink: 0; }
 .trips-list li:hover .trip-card-delete, .trip-card-delete:focus-visible { opacity: 1; }
 .trips-empty { margin: 8px 0 0; color: var(--muted); font-size: 16px; line-height: 1.5; }
 .trips-empty .dark-pill { display: inline-flex; margin-top: 14px; text-decoration: none; }
-.dark-pill:is(a) { text-decoration: none; }
+.dark-pill:is(a), .ghost-pill:is(a) { display: inline-flex; align-items: center; text-decoration: none; }
+a.recent-open, a.trip-card { color: inherit; text-decoration: none; }
+.trip-missing { position: absolute; left: 50%; bottom: 48px; z-index: 5; width: min(520px, calc(100% - 32px)); transform: translateX(-50%); padding: 24px 26px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow-lg); animation: card-in 0.3s ease both; }
+.trip-missing h1 { margin: 0 0 6px; font-family: var(--font-display), var(--font-body); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; }
+.trip-missing p { margin: 0 0 18px; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.trip-missing-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.trip-missing .ghost-pill { height: 44px; padding: 0 20px; font-size: 15px; }
 
 /* ── Errors ──────────────────────────────────────────────────────────────── */
 .error-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 14px 16px; margin-bottom: 14px; background: #fff7f7; border: 1px solid #f0d4d6; border-radius: 16px; font-size: 14px; animation: fade-in 0.3s ease both; }

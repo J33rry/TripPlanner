@@ -23,6 +23,7 @@ const MAX_TILT = 60;
 const ARRIVE_ROTATE_S = 1.5;
 const ARRIVE_ZOOM_START_S = 0.35;
 const ARRIVE_TOTAL_S = 2.1;
+const INTRO_GROW_S = 1.35; // compass → globe at the end of the intro
 
 // ── AI orb ────────────────────────────────────────────────────────────────
 // While thinking, every dot leaves its continent and swirls around one of
@@ -69,7 +70,7 @@ function ringBasis(ring, t) {
   return { u, v };
 }
 
-export default function DestinationGlobe({ destinations, mode = "idle", target, hidden, disabled, onSelect, onArrive }) {
+export default function DestinationGlobe({ destinations, mode = "idle", target, hidden, intro, disabled, onSelect, onArrive }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const markerRefs = useRef({});
@@ -77,9 +78,9 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
   const images = usePlaceImages(destinations.map((d) => d.landmark));
 
   // Props read inside the animation loop without restarting it.
-  const live = useRef({ mode, target, hidden, activeId, onArrive });
+  const live = useRef({ mode, target, hidden, intro, activeId, onArrive });
   useEffect(() => {
-    live.current = { mode, target, hidden, activeId, onArrive };
+    live.current = { mode, target, hidden, intro, activeId, onArrive };
   });
   const focusRequest = useRef(null);
 
@@ -109,6 +110,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       arrival: null,
       lastMode: "idle",
       arrivedFired: false,
+      introGrow: null, // { start, from } while growing out of the intro compass
       last: performance.now(),
     };
 
@@ -254,8 +256,19 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       // rAF timestamps can trail performance.now(), so clamp away negative steps.
       const dt = Math.max(0, Math.min(0.05, (now - state.last) / 1000));
       state.last = now;
-      const { mode: currentMode, target: currentTarget, hidden: isHidden, activeId: hovered } = live.current;
+      const { mode: currentMode, target: currentTarget, hidden: isHidden, intro, activeId: hovered } = live.current;
       if (isHidden || document.hidden || !state.width) return;
+
+      // Intro: stay blank under the splash, then grow out of its compass.
+      if (intro?.phase === "splash") {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+      if (intro?.phase === "morph" && intro.from && !state.introGrow) {
+        const rect = wrap.getBoundingClientRect();
+        state.introGrow = { start: state.clock, from: { cx: intro.from.x - rect.left, cy: intro.from.y - rect.top, r: intro.from.r } };
+      }
       const still = reducedMotion.matches;
       state.clock += dt;
 
@@ -280,6 +293,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       const home = homeLayout(state.width, state.height);
       let ringFade = 1;
       let markerFade = 1;
+      let introProgress = 1;
 
       if (state.arrival) {
         // Calm the orb, turn the destination to face us, then dive in.
@@ -304,6 +318,18 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
           state.arrivedFired = true;
           live.current.onArrive?.({ radius: state.layout.r });
         }
+      } else if (state.introGrow && !state.introGrow.done) {
+        const g = state.introGrow;
+        const p = still ? 1 : clamp01((state.clock - g.start) / INTRO_GROW_S);
+        const e = easeInOutCubic(p);
+        state.layout = {
+          cx: g.from.cx + (home.cx - g.from.cx) * e,
+          cy: g.from.cy + (home.cy - g.from.cy) * e,
+          r: g.from.r * Math.pow(home.r / g.from.r, e),
+        };
+        state.lon += IDLE_SPIN_DEG_PER_S * dt;
+        introProgress = p;
+        if (p >= 1) g.done = true;
       } else {
         // Ease back toward the home framing (this is also the zoom-out when
         // returning from a trip), and spin.
@@ -335,6 +361,13 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
         }
       }
 
+      // While growing out of the intro compass, detail fades in behind it.
+      if (introProgress < 1) {
+        ringFade *= clamp01((introProgress - 0.35) / 0.65);
+        markerFade *= clamp01((introProgress - 0.75) / 0.25);
+      }
+      const detailFade = clamp01(introProgress / 0.55);
+
       const orbMix = still ? state.orb * 0.35 : state.orb;
       if (orbMix > 0.001 && !still) state.orbTime += dt * (0.4 + orbMix);
       const rot = ORB_AXES.map((k, i) => {
@@ -351,7 +384,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
       ctx.clearRect(0, 0, state.width, state.height);
 
       // Soft lavender halo behind the sphere.
-      const haloStrength = 0.2 + orbMix * (0.28 + 0.12 * Math.sin(state.clock * 3));
+      const haloStrength = (0.2 + orbMix * (0.28 + 0.12 * Math.sin(state.clock * 3))) * detailFade;
       const halo = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.5);
       halo.addColorStop(0, `rgba(190, 150, 250, ${haloStrength})`);
       halo.addColorStop(1, "rgba(190, 150, 250, 0)");
@@ -413,7 +446,7 @@ export default function DestinationGlobe({ destinations, mode = "idle", target, 
         ctx.globalCompositeOperation = "source-over";
       }
 
-      collect(land, view, orbMix, r, cx, cy, 1, rot);
+      collect(land, view, orbMix, r, cx, cy, detailFade, rot);
       if (orbMix > 0.02) collect(ocean, view, orbMix, r, cx, cy, orbMix * 0.75, rot);
       flushBuckets(orbMix);
 

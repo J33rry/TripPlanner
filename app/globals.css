@@ -51,7 +51,47 @@ svg { flex-shrink: 0; }
 .roam-app { height: 100vh; height: 100svh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
 .roam-header { position: relative; z-index: 20; flex: 0 0 var(--header-h); height: var(--header-h); display: flex; align-items: center; gap: 24px; padding: 0 40px; transition: background 0.4s, border-color 0.4s; border-bottom: 1px solid transparent; }
 .phase-trip .roam-header { background: rgba(251, 250, 249, 0.96); border-bottom-color: var(--line); }
-.roam-brand { border: 0; padding: 0; background: none; font-family: var(--font-display), var(--font-body); font-size: 38px; font-weight: 400; letter-spacing: -0.02em; line-height: 1; color: var(--ink); }
+.roam-brand { display: inline-flex; border: 0; padding: 0; background: none; font-size: 38px; line-height: 1; color: var(--ink); }
+
+/* ── Wordmark: "roam" with the compass as its "o" ─────────────────────────
+   The compass SVG (100×124 viewBox) is 0.8em wide; nudged down so the ring
+   centres on the x-height, like the letter it replaces. */
+.wordmark { display: inline-flex; align-items: baseline; gap: 0.035em; font-family: var(--font-display), var(--font-body); font-weight: 500; letter-spacing: -0.01em; line-height: 1; }
+.compass-mark { display: block; width: 0.8em; height: 0.992em; overflow: visible; }
+.wordmark .compass-mark { position: relative; top: 0.246em; }
+.compass-disc { fill: transparent; }
+/* view-box origin is the viewBox's (0, 0) — the compass centre. */
+.compass-needle { transform-box: view-box; transform-origin: 0 0; }
+
+/* ── Intro: compass → title → globe ─────────────────────────────────────── */
+.intro-splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; pointer-events: none; color: #fff; }
+.intro-backdrop { position: absolute; inset: 0; background: #000; transition: opacity 0.85s ease 0.1s; }
+.intro-row { position: relative; display: inline-flex; align-items: baseline; gap: 0.035em; font-family: var(--font-display), var(--font-body); font-weight: 500; font-size: clamp(72px, 11vw, 180px); letter-spacing: -0.01em; line-height: 1; transform: translateX(var(--shift, 0.5em)); transition: transform 0.95s cubic-bezier(0.65, 0, 0.25, 1); }
+.intro-clip { display: inline-block; overflow: hidden; padding: 0.14em 0.02em; margin: -0.14em 0; }
+.intro-letters { display: inline-block; transition: transform 0.95s cubic-bezier(0.65, 0, 0.25, 1), opacity 0.35s ease; }
+.intro-clip-left .intro-letters { transform: translateX(110%); }
+.intro-clip-right .intro-letters { transform: translateX(-110%); }
+.intro-compass { position: relative; z-index: 1; top: 0.246em; transform: scale(0.78); transition: transform 0.95s cubic-bezier(0.65, 0, 0.25, 1), opacity 0.45s ease 0.15s; }
+.intro-compass .compass-mark { animation: compass-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.intro-compass .compass-disc { fill: #000; }
+.intro-compass .compass-needle { animation: needle-settle 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both; transition: opacity 0.2s ease; }
+.intro-splash:not(.phase-icon) .intro-row,
+.intro-splash:not(.phase-icon) .intro-letters,
+.intro-splash:not(.phase-icon) .intro-compass { transform: none; }
+.intro-splash.phase-morph .intro-backdrop,
+.intro-splash.phase-morph .intro-letters,
+.intro-splash.phase-morph .intro-compass,
+.intro-splash.phase-morph .compass-needle { opacity: 0; }
+@keyframes compass-in { from { opacity: 0; transform: scale(0.7); } }
+@keyframes needle-settle { from { transform: rotate(-300deg); } 70% { transform: rotate(14deg); } to { transform: rotate(0deg); } }
+
+/* Chrome slides in as the compass becomes the globe. */
+.intro-stage-splash .roam-header { transform: translateY(-110%); }
+.intro-stage-splash .recent-card { transform: translateX(calc(-100% - 64px)); }
+.intro-stage-splash .composer-wrap { transform: translateY(calc(100% + 64px)); opacity: 0; }
+.intro-stage-morph .roam-header { transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.35s; }
+.intro-stage-morph .recent-card { transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.55s; }
+.intro-stage-morph .composer-wrap { transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.65s, opacity 0.6s ease 0.65s; }
 .trip-header-title { min-width: 0; display: flex; align-items: center; height: 32px; padding-left: 24px; border-left: 1px solid var(--line); font-size: 18px; font-weight: 500; animation: fade-in 0.5s ease both; }
 .trip-header-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .header-actions { margin-left: auto; display: flex; gap: 10px; }
@@ -91,7 +131,7 @@ svg { flex-shrink: 0; }
 .recent-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 10px 0; border: 0; background: none; text-align: left; }
 .recent-thumb { flex: 0 0 54px; height: 54px; border-radius: 50%; background-size: cover; background-position: center; }
 .tint-0 { background-image: linear-gradient(135deg, #e9c9a8, #7c7aa6); } .tint-1 { background-image: linear-gradient(135deg, #a7b4bd, #5b6776); } .tint-2 { background-image: linear-gradient(135deg, #7fc6c1, #3f8a86); } .tint-3 { background-image: linear-gradient(135deg, #f0b6c6, #8c6b9f); } .tint-4 { background-image: linear-gradient(135deg, #b9cbe0, #5c6f86); }
-.recent-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.recent-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; margin-right: 34px; /* room for the delete button */ }
 .recent-text strong { font-size: 16px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-text small { color: var(--muted); font-size: 13.5px; }
 .recent-chevron { padding: 0 6px 0 4px; color: var(--muted); font-size: 24px; line-height: 1; }

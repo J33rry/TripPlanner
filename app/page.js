@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DestinationGlobe from "@/components/DestinationGlobe";
 import ErrorBanner from "@/components/ErrorBanner";
+import IntroSplash from "@/components/IntroSplash";
 import ItineraryView from "@/components/ItineraryView";
 import RefineInput from "@/components/RefineInput";
 import TripMap from "@/components/TripMap";
+import Wordmark from "@/components/Wordmark";
 import { ArrowIcon, BookmarkIcon, CheckIcon, CloseIcon, PlusIcon, SparkleIcon } from "@/components/icons";
 import { useDayRoutes } from "@/hooks/useDayRoutes";
 import { useGenerateTrip } from "@/hooks/useGenerateTrip";
@@ -58,6 +60,8 @@ function savedMeta(saved) {
 export default function HomePage() {
   const { trip, setTrip, toggleActivity, deleteActivity, deleteDay, editActivity, reorderActivities, reorderDays, togglePackingItem, clearTrip } = useTripState();
   const [view, setView] = useState("home"); // home → arriving → trip
+  // Opening sequence: splash (compass + title) → morph (compass becomes the globe) → done
+  const [intro, setIntro] = useState({ phase: "splash", from: null });
   const [savedTrips, setSavedTrips] = useState([]);
   const [prompt, setPrompt] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
@@ -224,9 +228,15 @@ export default function HomePage() {
   const showMap = view !== "home" && trip;
 
   return (
-    <div className={`roam-app phase-${view}`}>
+    <div className={`roam-app phase-${view} ${intro.phase !== "done" ? `intro-stage-${intro.phase}` : ""}`}>
+      {intro.phase !== "done" && (
+        <IntroSplash
+          onMorph={(from) => setIntro({ phase: "morph", from })}
+          onDone={() => setIntro({ phase: "done", from: null })}
+        />
+      )}
       <header className="roam-header">
-        <button type="button" className="roam-brand" onClick={startNewTrip} aria-label="Roam home">roam</button>
+        <button type="button" className="roam-brand" onClick={startNewTrip} aria-label="Roam home"><Wordmark /></button>
         {view === "trip" && trip && (
           <div className="trip-header-title"><span>{trip.tripTitle}</span></div>
         )}
@@ -269,6 +279,7 @@ export default function HomePage() {
           mode={globeMode}
           target={view === "arriving" ? center : null}
           hidden={view === "trip"}
+          intro={intro.phase === "done" ? null : intro}
           disabled={loading}
           onSelect={handleGenerate}
           onArrive={handleGlobeArrived}

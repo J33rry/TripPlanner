@@ -15,21 +15,16 @@ import {
 } from "@/lib/globeGeometry";
 import { usePlaceImages } from "@/hooks/usePlaceImages";
 
-// ── Motion ────────────────────────────────────────────────────────────────
-const IDLE_SPIN_DEG_PER_S = 3; // one lazy revolution every two minutes
+const IDLE_SPIN_DEG_PER_S = 3;
 const THINKING_SPIN_DEG_PER_S = 9;
-const START_VIEW = { lat: 18, lon: 22 }; // Europe, Africa and India in view
+const START_VIEW = { lat: 18, lon: 22 };
 const MAX_TILT = 60;
 const ARRIVE_ROTATE_S = 1.5;
 const ARRIVE_ZOOM_START_S = 0.35;
 const ARRIVE_TOTAL_S = 2.1;
-const INTRO_GROW_S = 1.35; // compass → globe at the end of the intro
-// Home ⇄ Trips flick: decays with the drag inertia (×1/2.5 s) ≈ 60° of turn.
+const INTRO_GROW_S = 1.35;
 const SCREEN_SPIN_DEG_PER_S = 150;
 
-// ── AI orb ────────────────────────────────────────────────────────────────
-// While thinking, every dot leaves its continent and swirls around one of
-// three tilted axes; easing the mix back to 0 lets each dot flow home.
 const ORB_AXES = [normalize([0.18, 1, 0.12]), normalize([1, 0.3, -0.25]), normalize([-0.55, 0.45, 0.7])];
 const ORB_SPEEDS = [1.6, -1.2, 2.05];
 const ORB_COLORS = [[214, 190, 255], [170, 118, 255], [246, 236, 255]];
@@ -37,7 +32,6 @@ const IDLE_COLOR = [247, 245, 251];
 const OCEAN_DOTS = 2600;
 const ALPHA_LEVELS = 6;
 
-// ── Decoration ────────────────────────────────────────────────────────────
 const RINGS = [
   { radius: 1.17, inclination: 64, azimuth: -30, precession: 1.2, speed: 0.22, riders: [0.1, 0.58] },
   { radius: 1.25, inclination: 76, azimuth: 38, precession: -0.8, speed: -0.16, riders: [0.36] },
@@ -53,10 +47,6 @@ const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 /
 const easeInCubic = (t) => t * t * t;
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
 
-/**
- * Where the globe rests for each screen (CSS pixels). The stacked phone
- * layouts are mirrored by the padding in globals.css.
- */
 function homeLayout(width, height, screen = "home") {
   const stacked = width < (screen === "trips" ? 900 : 760);
   if (stacked) {
@@ -64,7 +54,6 @@ function homeLayout(width, height, screen = "home") {
     return { cx: width / 2, cy: r + 52, r };
   }
   if (screen === "trips") {
-    // Left column beside the "Your trips" panel.
     const r = Math.min(height * 0.4, width * 0.235);
     return { cx: width * 0.29, cy: height * 0.5, r };
   }
@@ -88,14 +77,11 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
   const [activeId, setActiveId] = useState(null);
   const images = usePlaceImages(destinations.map((d) => d.landmark));
 
-  // Props read inside the animation loop without restarting it.
   const live = useRef({ mode, screen, target, hidden, intro, focusId, activeId, onArrive });
   useEffect(() => {
     live.current = { mode, screen, target, hidden, intro, focusId, activeId, onArrive };
   });
 
-  // Markers change with the route (suggestions on Home, saved trips on
-  // Trips); keep them in a ref so the render loop never restarts.
   const markersRef = useRef([]);
   useEffect(() => {
     markersRef.current = destinations.map((d) => ({
@@ -104,7 +90,7 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       lon: d.longitude,
       world: worldVector(d.latitude, d.longitude),
       labelSide: d.labelSide || "right",
-      labelWidth: 20 + d.name.length * 8, // ≈ rendered width of the 14px label pill
+      labelWidth: 20 + d.name.length * 8,
     }));
   }, [destinations]);
   const focusRequest = useRef(null);
@@ -119,7 +105,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
     const ocean = buildSphereDots(OCEAN_DOTS);
     const arcs = ARCS.map((arc) => ({ ...arc, points: buildArc(arc.from, arc.to) }));
 
-    // Per-frame scratch space for batching dots by colour family × alpha level.
     const bucketCount = 3 * ALPHA_LEVELS;
     const capacity = land.count + ocean.count;
     const buckets = Array.from({ length: bucketCount }, () => ({ xs: new Float32Array(capacity * 3), n: 0 }));
@@ -134,8 +119,8 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       arrival: null,
       lastMode: "idle",
       arrivedFired: false,
-      screen: null, // last screen framed, to spin on Home ⇄ Trips
-      introGrow: null, // { start, from } while growing out of the intro compass
+      screen: null,
+      introGrow: null,
       last: performance.now(),
     };
 
@@ -146,14 +131,12 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       state.height = rect.height;
       canvas.width = Math.round(rect.width * state.dpr);
       canvas.height = Math.round(rect.height * state.dpr);
-      // Snap to the new framing (the arrival dive computes its own).
       if (!state.arrival) state.layout = homeLayout(rect.width, rect.height, live.current.screen);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(wrap);
     resize();
 
-    // ── Drag to rotate ──────────────────────────────────────────────────
     const onPointerDown = (event) => {
       if (live.current.mode !== "idle" || !state.layout) return;
       const rect = canvas.getBoundingClientRect();
@@ -185,7 +168,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
 
-    // ── Drawing helpers ─────────────────────────────────────────────────
     const project = (x, y, r, cx, cy) => [cx + x * r, cy - y * r];
 
     const strokePath = (points, fromFront, alpha, width, color = "186, 140, 255") => {
@@ -216,7 +198,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       ctx.fill();
     };
 
-    // Push one dot set through the view (and orb swirl) into the buckets.
     const collect = (dots, view, orbMix, r, cx, cy, baseAlpha, rot) => {
       const t = state.clock;
       const dotSize = Math.max(0.7, r * 0.0034);
@@ -274,20 +255,16 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       }
     };
 
-    // ── Frame ───────────────────────────────────────────────────────────
     let frame = 0;
     const tick = (now) => {
       frame = requestAnimationFrame(tick);
-      // rAF timestamps can trail performance.now(), so clamp away negative steps.
       const dt = Math.max(0, Math.min(0.05, (now - state.last) / 1000));
       state.last = now;
       const { mode: currentMode, target: currentTarget, hidden: isHidden, intro, focusId, activeId } = live.current;
       const markers = markersRef.current;
-      // A hovered marker, or a trip hovered in the list, is highlighted.
       const hovered = activeId || focusId;
       if (isHidden || document.hidden || !state.width) return;
 
-      // Intro: stay blank under the splash, then grow out of its compass.
       if (intro?.phase === "splash") {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -300,13 +277,11 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       const still = reducedMotion.matches;
       state.clock += dt;
 
-      // A little spin while gliding between Home and Trips (opposite ways).
       if (live.current.screen !== state.screen) {
         if (state.screen && !still) state.velocity = (live.current.screen === "trips" ? 1 : -1) * SCREEN_SPIN_DEG_PER_S;
         state.screen = live.current.screen;
       }
 
-      // Mode transitions
       if (currentMode !== state.lastMode) {
         if (currentMode === "arriving" && currentTarget) {
           state.arrival = {
@@ -330,7 +305,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       let introProgress = 1;
 
       if (state.arrival) {
-        // Calm the orb, turn the destination to face us, then dive in.
         const a = state.arrival;
         const elapsed = still ? ARRIVE_TOTAL_S : state.clock - a.start;
         const turn = easeInOutCubic(clamp01(elapsed / ARRIVE_ROTATE_S));
@@ -365,8 +339,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         introProgress = p;
         if (p >= 1) g.done = true;
       } else {
-        // Ease back toward the home framing (this is also the zoom-out when
-        // returning from a trip), and spin.
         const k = 1 - Math.exp(-dt * 3.2);
         state.layout = {
           cx: state.layout.cx + (home.cx - state.layout.cx) * k,
@@ -380,8 +352,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
 
         const listFocus = focusId && markers.find((m) => m.id === focusId);
         if (focusRequest.current || listFocus) {
-          // Keyboard focus on a marker, or its trip hovered in the list:
-          // bring it round to face the viewer.
           const f = focusRequest.current || listFocus;
           const kf = 1 - Math.exp(-dt * 5);
           state.lon += shortestDelta(state.lon, f.lon) * kf;
@@ -397,7 +367,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         }
       }
 
-      // While growing out of the intro compass, detail fades in behind it.
       if (introProgress < 1) {
         ringFade *= clamp01((introProgress - 0.35) / 0.65);
         markerFade *= clamp01((introProgress - 0.75) / 0.25);
@@ -419,7 +388,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
       ctx.clearRect(0, 0, state.width, state.height);
 
-      // Soft lavender halo behind the sphere.
       const haloStrength = (0.2 + orbMix * (0.28 + 0.12 * Math.sin(state.clock * 3))) * detailFade;
       const halo = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.5);
       halo.addColorStop(0, `rgba(190, 150, 250, ${haloStrength})`);
@@ -427,8 +395,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       ctx.fillStyle = halo;
       ctx.fillRect(cx - r * 1.6, cy - r * 1.6, r * 3.2, r * 3.2);
 
-      // Orbit rings and flight arcs: draw fully first; the sphere then hides
-      // whatever passes behind it, and the front halves are redrawn on top.
       const ringSpeedBoost = 1 + orbMix * 3;
       const ringPaths = RINGS.map((ring) => {
         const { u, v } = ringBasis(ring, state.clock * ringSpeedBoost);
@@ -459,7 +425,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         arcPaths.forEach(({ points }) => strokePath(points, false, lineAlpha * 0.9, 1));
       }
 
-      // The sphere
       const body = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.42, r * 0.05, cx, cy, r * 1.05);
       body.addColorStop(0, "#47464d");
       body.addColorStop(0.5, "#1d1d22");
@@ -486,7 +451,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       if (orbMix > 0.02) collect(ocean, view, orbMix, r, cx, cy, orbMix * 0.75, rot);
       flushBuckets(orbMix);
 
-      // Rim light
       const rim = ctx.createRadialGradient(cx, cy, r * 0.82, cx, cy, r);
       rim.addColorStop(0, "rgba(255,255,255,0)");
       rim.addColorStop(1, `rgba(225, 205, 255, ${0.1 + orbMix * 0.12})`);
@@ -510,7 +474,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         });
       }
 
-      // Destination markers: glow on canvas, label/hit area as HTML overlay.
       const placed = [];
       for (const marker of markers) {
         const [x, y, z] = toView(marker.world[0], marker.world[1], marker.world[2], view);
@@ -519,8 +482,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         if (visible > 0) glowDot(sx, sy, marker.id === hovered ? 5 : 3.8, visible);
         placed.push({ marker, sx, sy, visible });
       }
-      // Place labels like a map does: the hovered marker first, then each on
-      // its preferred side, else the other side, else dot only (shown on hover).
       placed.sort((a, b) => (b.marker.id === hovered) - (a.marker.id === hovered));
       const boxes = [];
       for (const { marker, sx, sy, visible } of placed) {
@@ -537,7 +498,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         const side = sides.find((candidate) => clear(boxFor(candidate)));
         el.dataset.side = side || sides[0];
         el.dataset.label = side || marker.id === hovered ? "shown" : "hidden";
-        // A dot-only marker still keeps other labels off its dot.
         boxes.push(side ? boxFor(side) : [sx - 6, sy - 6, sx + 6, sy + 6]);
       }
     };

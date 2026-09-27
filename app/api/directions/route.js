@@ -1,9 +1,3 @@
-// Proxies routing requests to the public FOSSGIS OSRM servers
-// (routing.openstreetmap.de). Proxying lets us send an identifying
-// User-Agent as their usage policy asks, validate input, and cache results.
-// The service is free, keyless and best-effort, so callers must fall back to
-// straight lines when this returns an error.
-
 const PROFILES = { foot: "routed-foot", car: "routed-car" };
 const MAX_POINTS = 25;
 const TIMEOUT_MS = 8000;

@@ -2,12 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-// Thumbnails come from Wikipedia's public API (CORS enabled via origin=*).
-// Titles that aren't articles, or articles without a lead image, resolve to
-// null and the UI shows an illustrated fallback instead.
 const API = "https://en.wikipedia.org/w/api.php";
-const BATCH_SIZE = 50; // the API's limit on titles per request
-const imageCache = new Map(); // title -> url | null
+const BATCH_SIZE = 50;
+const imageCache = new Map();
 
 async function fetchBatch(titles, signal) {
   const params = new URLSearchParams({
@@ -25,7 +22,6 @@ async function fetchBatch(titles, signal) {
   if (!response.ok) throw new Error("Wikipedia request failed");
   const { query = {} } = await response.json();
 
-  // Follow the API's title normalisation and redirects back to what we asked for.
   const resolve = new Map(titles.map((title) => [title, title]));
   for (const step of [...(query.normalized || []), ...(query.redirects || [])]) {
     for (const [original, current] of resolve) {
@@ -38,11 +34,8 @@ async function fetchBatch(titles, signal) {
   }
 }
 
-/** Map of title -> thumbnail URL (or null) for the given place names. */
 export function usePlaceImages(titles) {
   const [, setVersion] = useState(0);
-  // Key on the titles' content so callers can pass a fresh array each render.
-  // ("|" can't appear in Wikipedia titles, so it's a safe separator.)
   const key = [...new Set(titles.map((title) => title?.trim()).filter(Boolean))].join("|");
   const wanted = useMemo(() => (key ? key.split("|") : []), [key]);
 
@@ -60,7 +53,5 @@ export function usePlaceImages(titles) {
     return () => controller.abort();
   }, [wanted]);
 
-  // Read straight from the cache each render; the version bump above re-renders
-  // once a batch lands.
   return Object.fromEntries(wanted.map((title) => [title, imageCache.get(title) ?? null]));
 }

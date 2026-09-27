@@ -1,9 +1,3 @@
-// Generates lib/landMask.js: a base64 bitmask marking which points of the
-// globe's dot grid fall on land. Run with `npm run gen:land-mask`.
-//
-// The grid must match buildDotGrid() in lib/globeGeometry.js: rows every
-// GRID_STEP degrees of latitude, each row holding round(360·cos(lat)/step)
-// evenly spaced dots, so dots are roughly equidistant over the sphere.
 import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { geoContains } from "d3-geo";

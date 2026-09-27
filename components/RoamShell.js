@@ -1,10 +1,5 @@
 "use client";
 
-// The persistent app shell, rendered by the root layout so the globe, the
-// intro, the open trip and generation state all survive navigation between
-// Home (/) and Trips (/trips). Each route only renders its own overlay
-// (HomeScreen / TripsScreen) and talks to the shell through useRoam().
-
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -25,10 +20,8 @@ import { distanceKm, getTripCenter, getTripStops } from "@/lib/geo";
 import { dayCount, destinationLabel, placeTitle } from "@/lib/tripDisplay";
 
 const STORAGE_KEY = "tripplanner_saved_trips";
-// If map tiles are slow, don't hold the zoomed-in globe forever.
 const MAP_READY_TIMEOUT_MS = 3500;
 const DESKTOP_MIN_WIDTH = 900;
-// Markers closer than this get their labels pushed apart (west one on the left).
 const LABEL_CLASH_KM = 1200;
 
 function loadSavedTrips() {
@@ -40,12 +33,8 @@ function loadSavedTrips() {
   }
 }
 
-/** Saves (or updates) a trip and returns its entry, or null on failure. */
 function saveTripToStorage(trip) {
   try {
-    // Dedupe on the stable tripId so re-saving an edited trip updates its entry
-    // (keeping its id, and so its /trips/[id] URL), while two distinct trips
-    // that share an AI-generated title stay separate.
     const all = loadSavedTrips();
     const existing = all.find((item) => item.data?.tripId === trip.tripId);
     const others = all.filter((item) => item !== existing);
@@ -57,11 +46,9 @@ function saveTripToStorage(trip) {
   }
 }
 
-/** Each saved trip has its own page. */
 export const tripHref = (saved) => `/trips/${saved.id}`;
 const TRIP_ROUTE = /^\/trips\/([^/]+)$/;
 
-// Home globe: suggested destinations that start a new plan.
 const SUGGESTION_MARKERS = DESTINATIONS.map((d) => ({
   ...d,
   cardTitle: `${d.name}, ${d.region}`,
@@ -69,7 +56,6 @@ const SUGGESTION_MARKERS = DESTINATIONS.map((d) => ({
   actionLabel: "Plan a trip here",
 }));
 
-/** Trips globe: one marker per saved destination (the most recent trip wins). */
 function tripMarkers(savedTrips) {
   const byPlace = new Map();
   for (const saved of savedTrips) {
@@ -105,10 +91,7 @@ export const useRoam = () => useContext(RoamContext);
 export default function RoamShell({ children }) {
   const pathname = usePathname();
   const router = useRouter();
-  // The id in /trips/[id] decides which saved trip is open.
   const routeTripId = pathname.match(TRIP_ROUTE)?.[1] ?? null;
-  // Which list the globe is framed for. A trip page keeps the list it was
-  // opened from, so the dive starts where the globe already is.
   const [screen, setScreen] = useState(pathname === "/trips" ? "trips" : "home");
   const [screenPath, setScreenPath] = useState(pathname);
   if (pathname !== screenPath) {
@@ -117,13 +100,10 @@ export default function RoamShell({ children }) {
   }
 
   const { trip, setTrip, toggleActivity, deleteActivity, deleteDay, editActivity, reorderActivities, reorderDays, togglePackingItem, clearTrip } = useTripState();
-  const [view, setView] = useState("globe"); // globe → arriving → trip
-  // Opening sequence: splash (compass + title) → morph (compass becomes the globe) → done
+  const [view, setView] = useState("globe");
   const [intro, setIntro] = useState({ phase: "splash", from: null });
   const [savedTrips, setSavedTrips] = useState([]);
   const [savedLoaded, setSavedLoaded] = useState(false);
-  // The saved trip that is open (its id, as in the URL); null for a fresh,
-  // unsaved plan.
   const [openSavedId, setOpenSavedId] = useState(null);
   const [prompt, setPrompt] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
@@ -144,7 +124,6 @@ export default function RoamShell({ children }) {
     tripRef.current = trip;
   });
 
-  // ── Arrival: globe dive + map load must both finish before the reveal ─────
   const revealIfReady = useCallback(() => {
     const arrival = arrivalRef.current;
     if (viewRef.current === "arriving" && arrival.globe && arrival.map) {
@@ -182,7 +161,6 @@ export default function RoamShell({ children }) {
   const { loading, error, generate, cancel, clearError } = useGenerateTrip(
     useCallback((data) => {
       if (viewRef.current === "trip" && tripRef.current) {
-        // A refinement: update in place and keep the trip's identity.
         setTrip({ ...data, tripId: tripRef.current.tripId });
       } else {
         openTrip(data);
@@ -203,8 +181,6 @@ export default function RoamShell({ children }) {
     };
   }, []);
 
-  // Keep the map's framing clear of the itinerary panel (side panel on
-  // desktop, bottom sheet on small screens).
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
@@ -217,7 +193,6 @@ export default function RoamShell({ children }) {
     return () => observer.disconnect();
   }, [view]);
 
-  // ── Actions ───────────────────────────────────────────────────────────────
   const generateFromPrompt = (input) => {
     const cleanInput = input.trim();
     if (!cleanInput || loading) return;
@@ -228,7 +203,6 @@ export default function RoamShell({ children }) {
 
   const handleRefine = (refinement) => {
     if (!trip) return;
-    // Send the plan without client-only fields (undefined keys drop out of JSON).
     const cleanTrip = {
       ...trip,
       tripId: undefined,
@@ -253,7 +227,6 @@ export default function RoamShell({ children }) {
     setSaveMessage(entry ? "Saved" : "Couldn’t save");
     setSavedTrips(loadSavedTrips());
     if (entry && String(entry.id) !== routeTripId) {
-      // A fresh plan now has a home of its own.
       setOpenSavedId(String(entry.id));
       router.replace(tripHref(entry));
     }
@@ -266,10 +239,9 @@ export default function RoamShell({ children }) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
       setSavedTrips(remaining);
-    } catch { /* Keep the in-memory list unchanged if storage is unavailable. */ }
+    } catch { }
   };
 
-  /** Leave the open trip and return to the globe (zooming back out). */
   const closeTrip = () => {
     cancel();
     clearError();
@@ -286,10 +258,6 @@ export default function RoamShell({ children }) {
     if (pathname !== "/") router.push("/");
   };
 
-  // ── URL ↔ open trip ───────────────────────────────────────────────────────
-  // Opening happens here, not in click handlers, so links, reloads, shared
-  // URLs and Back/Forward all behave the same. On a first visit it waits for
-  // the intro so the dive follows the compass → globe morph.
   const closeTripRef = useRef(closeTrip);
   useEffect(() => {
     closeTripRef.current = closeTrip;
@@ -297,17 +265,13 @@ export default function RoamShell({ children }) {
   const introDone = intro.phase === "done";
   useEffect(() => {
     if (!routeTripId) {
-      // Left a trip page (e.g. Back): zoom out again.
       if (openSavedId != null) closeTripRef.current();
       return;
     }
     if (!savedLoaded || !introDone || openSavedId === routeTripId) return;
     const saved = savedTrips.find((item) => String(item.id) === routeTripId);
-    if (!saved) return; // rendered as "trip not found" by TripRouteScreen
-    cancel(); // a plan still generating must not overwrite the one being opened
-    // Syncing from an external source (the URL) once async preconditions are
-    // met is exactly what this effect is for.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!saved) return;
+    cancel();
     openTrip(saved.data, routeTripId);
   }, [routeTripId, savedLoaded, introDone, openSavedId, savedTrips, openTrip, cancel]);
 
@@ -322,7 +286,6 @@ export default function RoamShell({ children }) {
     if (day && activeDayId && activeDayId !== day.id) setActiveDayId(day.id);
   };
 
-  // ── Derived data ──────────────────────────────────────────────────────────
   const stops = useMemo(() => getTripStops(trip), [trip]);
   const stopNumbers = useMemo(() => Object.fromEntries(stops.map((stop) => [stop.id, stop.number])), [stops]);
   const center = useMemo(() => getTripCenter(trip), [trip]);
@@ -336,7 +299,6 @@ export default function RoamShell({ children }) {
   const savedMarkers = useMemo(() => tripMarkers(savedTrips), [savedTrips]);
   const markers = screen === "trips" ? savedMarkers : SUGGESTION_MARKERS;
   const markerIdBySaved = useMemo(() => {
-    // Trips sharing a destination all point at that destination's marker.
     const byName = new Map(savedMarkers.map((m) => [m.name.toLowerCase(), m.id]));
     return Object.fromEntries(
       savedTrips.map((s) => [s.id, byName.get((s.data.destination?.name || s.title).toLowerCase()) || null])
@@ -368,12 +330,10 @@ export default function RoamShell({ children }) {
     savedTrips,
     images,
     deleteSaved,
-    // Asked-for trip that isn't saved in this browser.
     missingTrip: Boolean(routeTripId) && savedLoaded && !savedTrips.some((item) => String(item.id) === routeTripId),
     focusSavedTrip: (savedId) => setGlobeFocusId(savedId == null ? null : markerIdBySaved[savedId]),
   };
 
-  // Nav links also close an open trip, so the globe zooms back out.
   const navLink = (href, label) => (
     <Link
       href={href}

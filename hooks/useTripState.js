@@ -26,11 +26,7 @@ function tripReducer(state, action) {
     case ACTIONS.SET_TRIP:
       return {
         ...action.payload,
-        // Stable identity so saved trips dedupe on this rather than on the
-        // (possibly colliding) AI-generated title. Preserved when reloading a
-        // saved trip; minted for freshly generated ones.
         tripId: action.payload.tripId || newTripId(),
-        // Add checked state to packing list
         packingList: (action.payload.packingList || []).map((item) =>
           typeof item === "string" ? { text: item, checked: false } : item
         ),

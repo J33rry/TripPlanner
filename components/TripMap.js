@@ -3,13 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { arrivalRadius, zoomForGlobeRadius } from "@/lib/globeGeometry";
 
-// Free, keyless vector tiles from OpenFreeMap (OpenStreetMap data).
 const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 const WORKER_PATH = "/vendor/maplibre/maplibre-gl-worker.mjs";
 const REVEAL_FLY_MS = 2800;
 const REFIT_MS = 900;
 
-// Nudge Positron's greys toward the Roam palette: green parks, soft blue water.
 const PAINT_OVERRIDES = {
   background: { "background-color": "#f3f1ec" },
   park: { "fill-color": "#d3e8c5", "fill-opacity": 0.85 },
@@ -74,7 +72,6 @@ export default function TripMap({
     live.current = { onReady, onStopSelect };
   });
 
-  // ── Create the map once, framed to match the zoomed-in home globe ─────────
   useEffect(() => {
     let cancelled = false;
     let map;
@@ -91,7 +88,7 @@ export default function TripMap({
           style: STYLE_URL,
           center: [start.lng, start.lat],
           zoom: center ? zoomForGlobeRadius(arrivalRadius(width, height), start.lat) : 1.2,
-          attributionControl: false, // credited in the legend instead
+          attributionControl: false,
           fadeDuration: 150,
         });
         mapRef.current = map;
@@ -154,11 +151,8 @@ export default function TripMap({
       map?.remove();
       mapRef.current = null;
     };
-    // The map is created once per trip view; later changes are applied below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Route lines and stop halos ────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!loaded || !map) return;
@@ -183,7 +177,6 @@ export default function TripMap({
     });
   }, [loaded, dayRoutes, stops, activeDayId]);
 
-  // ── Numbered pins ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     const maplibregl = libRef.current;
@@ -220,7 +213,6 @@ export default function TripMap({
     });
   }, [hoveredStopId, selectedStopId, activeDayId, stops, loaded]);
 
-  // ── Camera ────────────────────────────────────────────────────────────────
   const getPadding = useCallback(() => {
     const { width, height } = containerRef.current.getBoundingClientRect();
     const compact = width < 900;
@@ -230,7 +222,6 @@ export default function TripMap({
       right: (insets?.right || 0) + (compact ? 28 : 64),
       bottom: (insets?.bottom || 0) + (compact ? 28 : 96),
     };
-    // On short or narrow screens never let padding swallow the viewport.
     const shrink = (total, room) => (total > room ? Math.max(0, room) / total : 1);
     const sy = shrink(padding.top + padding.bottom, height - 90);
     const sx = shrink(padding.left + padding.right, width - 90);
@@ -262,17 +253,13 @@ export default function TripMap({
     map.fitBounds(boundsOf(points), { padding, maxZoom: 15.5, duration, essential: true, curve: 1.5 });
   }, [loaded, revealed, stops, activeDayId, getPadding, insets?.right, insets?.bottom, center]);
 
-  // Glide to a stop picked in the itinerary (or on the map).
   useEffect(() => {
     const map = mapRef.current;
     const stop = stops.find((s) => s.id === selectedStopId);
     if (!loaded || !map || !revealed || !stop) return;
     map.easeTo({ center: stop.lngLat, zoom: Math.max(map.getZoom(), 14.5), padding: getPadding(), duration: 700 });
-    // Only when the selection changes, not on every stop edit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStopId, loaded, revealed]);
 
-  // ── Legend ────────────────────────────────────────────────────────────────
   const legend = useMemo(() => {
     const plans = dayRoutes.filter((plan) => plan.coordinates.length >= 2 && (!activeDayId || plan.dayId === activeDayId));
     if (!plans.length) return null;

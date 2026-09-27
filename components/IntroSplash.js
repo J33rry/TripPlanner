@@ -3,9 +3,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CompassMark } from "./Wordmark";
 
-// icon: compass fades in and its needle settles
-// title: "r" and "am" slide out from behind the compass, which becomes the "o"
-// morph: letters and black fade away while the globe grows out of the compass
 const TIMELINE = { title: 1100, morph: 2600, done: 3700 };
 const REDUCED_TIMELINE = { title: 0, morph: 900, done: 1300 };
 
@@ -19,8 +16,6 @@ export default function IntroSplash({ onMorph, onDone }) {
     handlers.current = { onMorph, onDone };
   });
 
-  // Centre the compass on screen before the letters appear. The row is
-  // shifted by the distance between its centre and the compass's centre.
   useLayoutEffect(() => {
     const measure = () => {
       const row = rowRef.current?.getBoundingClientRect();

@@ -12,7 +12,6 @@ const groq = new Groq({
 
 export async function POST(request) {
   try {
-    // Validate API key exists
     if (!process.env.GROQ_API_KEY) {
       return Response.json(
         { error: "GROQ_API_KEY is not configured on the server." },
@@ -24,16 +23,13 @@ export async function POST(request) {
     const { userInput, existingTrip, refinement } = body;
     const mode = refinement != null ? "refine" : "create";
 
-    // Guardrail 1: deterministic limits.
     const text = precheck(mode === "refine" ? refinement : userInput, mode);
     if (mode === "refine" && (!existingTrip || JSON.stringify(existingTrip).length > MAX_EXISTING_TRIP_CHARS)) {
       return Response.json({ error: "That itinerary can’t be refined. Please start a new trip." }, { status: 400 });
     }
 
-    // Build the prompt (initial or refinement)
     const prompt = mode === "refine" ? buildRefinePrompt(existingTrip, text) : buildPrompt(text);
 
-    // Call Groq API
     const model = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
     const isGptOss = model.startsWith("openai/gpt-oss");
     const completionRequest = {
@@ -43,33 +39,24 @@ export async function POST(request) {
       ],
       model,
       temperature: 0.7,
-      // Reasoning tokens count toward this limit on gpt-oss models, and the
-      // itinerary now carries coordinates, so leave generous headroom.
       max_completion_tokens: 8192,
       ...(isGptOss
         ? {
-            // Keep hidden reasoning short so the plan arrives quickly, and use
-            // strict structured outputs so the JSON can't come back malformed.
             reasoning_effort: "low",
             response_format: {
               type: "json_schema",
               json_schema: { name: "trip_itinerary", schema: TRIP_JSON_SCHEMA, strict: true },
             },
           }
-        : // Other models may not support strict schemas or reasoning_effort.
-          { response_format: { type: "json_object" } }),
+        : { response_format: { type: "json_object" } }),
     };
 
-    // Guardrail 2: classify the request while the plan is generated in
-    // parallel, so allowed requests pay no extra latency. A rejection aborts
-    // the generation; if the check can't run, fail closed.
     const generation = new AbortController();
     const signal = AbortSignal.any([request.signal, generation.signal]);
     const completionPromise = (async () => {
       try {
         return await groq.chat.completions.create(completionRequest, { signal });
       } catch (err) {
-        // Groq rejects generations that fail its JSON check; one retry usually succeeds.
         if (err?.error?.error?.code !== "json_validate_failed") throw err;
         return groq.chat.completions.create(completionRequest, { signal });
       }
@@ -108,7 +95,6 @@ export async function POST(request) {
       );
     }
 
-    // Parse the response (with repair strategies)
     const parsed = parseAIResponse(rawContent);
 
     if (!parsed.success) {
@@ -122,7 +108,6 @@ export async function POST(request) {
       );
     }
 
-    // Validate against schema
     const validated = validateTrip(parsed.data);
 
     if (!validated.success) {
@@ -146,10 +131,8 @@ export async function POST(request) {
       );
     }
 
-    // Keep logs readable: Groq errors can embed the model's whole output.
     console.error("API route error:", err?.status ?? "", String(err?.message ?? err).slice(0, 300));
 
-    // Handle Groq-specific errors
     if (err?.status === 429) {
       return Response.json(
         {

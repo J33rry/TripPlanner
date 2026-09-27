@@ -52,7 +52,6 @@ export default function ItineraryView({
       return;
     }
 
-    // Activity drag — reorder within its own day.
     for (const stop of trip.stops) {
       const oldIndex = stop.activities.findIndex((a) => a.id === active.id);
       if (oldIndex === -1) continue;

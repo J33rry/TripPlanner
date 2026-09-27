@@ -3,7 +3,6 @@
 export default function ErrorBanner({ error, onRetry, onDismiss }) {
   if (!error) return null;
 
-  // Guardrail rejections aren't failures — show them as a gentle notice.
   const notice = error.code === "guardrail";
 
   return (

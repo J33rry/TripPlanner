@@ -34,7 +34,6 @@ export default function ActivityCard({
   const config = ACTIVITY_CONFIG[activity.type] || ACTIVITY_CONFIG.activity;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: activity.id, disabled: editing });
 
-  // Bring the row into view when its pin is picked on the map.
   useEffect(() => {
     if (selected) rowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selected]);

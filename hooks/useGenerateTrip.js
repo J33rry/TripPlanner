@@ -2,12 +2,6 @@
 
 import { useState, useRef, useCallback } from "react";
 
-/**
- * Hook that manages the AI generation lifecycle:
- * - Loading / error / success state
- * - AbortController to prevent stale responses
- * - Retry functionality
- */
 export function useGenerateTrip(onSuccess) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -16,16 +10,13 @@ export function useGenerateTrip(onSuccess) {
 
   const generate = useCallback(
     async ({ userInput, existingTrip, refinement }) => {
-      // Cancel any in-flight request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
 
-      // Create new abort controller for this request
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      // Track request ID to prevent stale responses
       const currentRequestId = ++requestIdRef.current;
 
       setLoading(true);
@@ -39,14 +30,12 @@ export function useGenerateTrip(onSuccess) {
           signal: controller.signal,
         });
 
-        // Check if this request is still the latest
         if (currentRequestId !== requestIdRef.current) {
-          return; // A newer request was made; discard this response
+          return;
         }
 
         const data = await response.json();
 
-        // Check again after parsing (in case a new request started during parse)
         if (currentRequestId !== requestIdRef.current) {
           return;
         }
@@ -54,7 +43,7 @@ export function useGenerateTrip(onSuccess) {
         if (!response.ok || !data.success) {
           setError({
             message: data.error || "Something went wrong",
-            code: data.code, // "guardrail" when the request isn't about travel
+            code: data.code,
             details: data.details,
             raw: data.raw,
             retryable: data.retryable !== false,
@@ -66,17 +55,14 @@ export function useGenerateTrip(onSuccess) {
         onSuccess(data.data);
         setLoading(false);
       } catch (err) {
-        // Don't update state if the request was aborted (replaced by newer one)
         if (err.name === "AbortError") {
           return;
         }
 
-        // Check if still latest request
         if (currentRequestId !== requestIdRef.current) {
           return;
         }
 
-        // Network error or other fetch failure
         setError({
           message: navigator.onLine
             ? "Failed to connect to the server. Please try again."
@@ -90,7 +76,6 @@ export function useGenerateTrip(onSuccess) {
   );
 
   const cancel = useCallback(() => {
-    // Invalidate even a response that has arrived but is still being parsed.
     requestIdRef.current += 1;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();

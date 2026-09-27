@@ -3,14 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { getTripStops, pathLengthKm } from "@/lib/geo";
 
-// City days are walked (as in the designs); longer hops are routed by car.
 const MAX_WALK_LEG_KM = 4;
 const MAX_WALK_DAY_KM = 15;
-// Legs longer than this are intercity hops (train/flight): draw them straight.
 const MAX_ROUTED_LEG_KM = 400;
 const DEBOUNCE_MS = 350;
 
-// Shared across trips so reopening or reordering back reuses earlier results.
 const routeCache = new Map();
 
 function planDay(dayId, day, coordinates) {
@@ -25,11 +22,6 @@ function planDay(dayId, day, coordinates) {
   return { dayId, day, coordinates, profile, routable, straightKm, key };
 }
 
-/**
- * Street routes for each day of a trip, following the itinerary order.
- * Each entry has `route` ({ geometry, distance, duration }) once loaded, or
- * `route: null` meaning "draw straight lines" (loading, failed, or unroutable).
- */
 export function useDayRoutes(trip) {
   const [, setVersion] = useState(0);
 
@@ -59,7 +51,6 @@ export function useDayRoutes(trip) {
           .then((response) => (response.ok ? response.json() : Promise.reject(new Error("route failed"))))
           .then((route) => routeCache.set(plan.key, { status: "ready", route }))
           .catch(() => {
-            // A real failure falls back to straight lines; aborts are handled in cleanup.
             if (!controller.signal.aborted) routeCache.set(plan.key, { status: "failed" });
           })
           .finally(() => {
@@ -71,7 +62,6 @@ export function useDayRoutes(trip) {
     return () => {
       clearTimeout(timer);
       controller.abort();
-      // Forget requests cut short so the next run fetches them again.
       for (const plan of pending) {
         if (routeCache.get(plan.key)?.status === "loading") routeCache.delete(plan.key);
       }

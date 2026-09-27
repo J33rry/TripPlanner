@@ -1,5 +1,3 @@
-// Minimal stroke icons matching the Roam designs. Decorative: callers label
-// the surrounding button.
 const base = {
   width: 18,
   height: 18,

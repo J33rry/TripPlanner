@@ -54,6 +54,14 @@ All are free and keyless; none receive the Groq key.
 
 The routing and tile services are community-run and best-effort; the app falls back to straight-line routes and illustrated thumbnails when they are unavailable. For production traffic, move to a provider with an SLA.
 
+## AI usage
+
+Most of this codebase was written by AI (Claude, via Claude Code), directed and reviewed by me — architecture decisions (the guardrail pipeline, prompt structure, JSON-repair/validation strategy, globe/map rendering approach), component boundaries, and debugging were done in an iterative loop where I set the direction and reviewed/tested each change rather than writing most lines by hand. I can walk through and explain any part of it.
+
+## Time spent
+
+About 8 hours, in line with the assignment's suggested budget.
+
 ## Known limitations
 
 - Place coordinates come from the AI. Obviously wrong ones are dropped (missing, 0,0, or more than 3,000 km from the destination), but pins can still be slightly off, and Roam does not verify place names, opening hours or prices.

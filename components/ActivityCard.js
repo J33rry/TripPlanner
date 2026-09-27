@@ -1,160 +1,139 @@
 "use client";
 
-import { ACTIVITY_CONFIG } from "@/lib/constants";
+import { useEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { ACTIVITY_CONFIG } from "@/lib/constants";
+import { CheckIcon, GripIcon, MoreIcon, PencilIcon, TrashIcon } from "./icons";
+
+const draftFrom = (activity) => ({
+  title: activity.title,
+  time: activity.time || "",
+  location: activity.location || "",
+  description: activity.description || "",
+});
 
 export default function ActivityCard({
   activity,
   dayId,
+  image,
+  number,
+  hovered,
+  selected,
+  onHover,
+  onSelect,
   onToggle,
   onDelete,
-  dragDisabled,
+  onEdit,
 }) {
+  const [editing, setEditing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [draft, setDraft] = useState(() => draftFrom(activity));
+  const rowRef = useRef(null);
+  const menuRef = useRef(null);
   const config = ACTIVITY_CONFIG[activity.type] || ACTIVITY_CONFIG.activity;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: activity.id, disabled: editing });
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: activity.id, disabled: dragDisabled });
+  // Bring the row into view when its pin is picked on the map.
+  useEffect(() => {
+    if (selected) rowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selected]);
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event) => {
+      if (event.type === "keydown" ? event.key === "Escape" : !menuRef.current?.contains(event.target)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menuOpen]);
+
+  const meta = [activity.time, activity.location].filter(Boolean).join(" · ");
+  const setRefs = (el) => {
+    setNodeRef(el);
+    rowRef.current = el;
   };
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      className={`group flex items-start gap-3 py-3 px-3 rounded-xl
-        transition-all duration-200
-        hover:bg-white/[0.03]
-        ${isDragging ? "dragging" : ""}
-        ${activity.completed ? "opacity-60" : ""}`}
+      ref={setRefs}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`activity-row ${hovered ? "is-hovered" : ""} ${selected ? "is-selected" : ""} ${activity.completed ? "is-done" : ""} ${isDragging ? "is-dragging" : ""}`}
+      onPointerEnter={() => onHover(activity.id)}
+      onPointerLeave={() => onHover(null)}
     >
-      {/* Drag handle */}
-      <button
-        {...attributes}
-        {...listeners}
-        className="mt-1.5 cursor-grab active:cursor-grabbing text-text-muted
-          opacity-0 group-hover:opacity-100 transition-opacity touch-none"
-        aria-label="Drag to reorder"
-      >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="currentColor"
-        >
-          <circle cx="3" cy="2" r="1.2" />
-          <circle cx="9" cy="2" r="1.2" />
-          <circle cx="3" cy="6" r="1.2" />
-          <circle cx="9" cy="6" r="1.2" />
-          <circle cx="3" cy="10" r="1.2" />
-          <circle cx="9" cy="10" r="1.2" />
-        </svg>
+      <button type="button" className="drag-handle" {...attributes} {...listeners} aria-label={`Reorder ${activity.title}`}>
+        <GripIcon />
       </button>
 
-      {/* Completion checkbox */}
-      <button
-        onClick={() => onToggle(dayId, activity.id)}
-        className={`mt-1 w-5 h-5 rounded-md border-2 flex-shrink-0
-          flex items-center justify-center transition-all duration-200
-          ${
-            activity.completed
-              ? "bg-accent-green border-accent-green"
-              : "border-white/20 hover:border-primary"
-          }`}
-        aria-label={
-          activity.completed ? "Mark as incomplete" : "Mark as complete"
-        }
-      >
-        {activity.completed && (
-          <svg
-            width="10"
-            height="8"
-            viewBox="0 0 10 8"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <path d="M1 4l3 3 5-6" />
-          </svg>
-        )}
-      </button>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          {/* Time */}
-          {activity.time && (
-            <span className="text-xs text-text-muted font-mono">
-              {activity.time}
-            </span>
-          )}
-
-          {/* Type badge */}
-          <span className={`badge badge-${activity.type}`}>
-            {config.icon} {config.label}
-          </span>
-        </div>
-
-        {/* Title */}
-        <h4
-          className={`text-sm font-medium text-text-primary mb-0.5
-            ${activity.completed ? "line-through" : ""}`}
-        >
-          {activity.title}
-        </h4>
-
-        {/* Description */}
-        {activity.description && (
-          <p className="text-xs text-text-secondary leading-relaxed">
-            {activity.description}
-          </p>
-        )}
-
-        {/* Meta */}
-        <div className="flex items-center gap-3 mt-1.5">
-          {activity.cost && (
-            <span className="text-xs text-accent-green font-medium">
-              {activity.cost}
-            </span>
-          )}
-          {activity.duration && (
-            <span className="text-xs text-text-muted">
-              ⏱ {activity.duration}
-            </span>
-          )}
-        </div>
+      <div className={`activity-thumb type-${activity.type}`} style={image ? { backgroundImage: `url("${image}")` } : undefined}>
+        {!image && <span aria-hidden="true">{config.icon}</span>}
+        {number && <b className="thumb-number">{number}</b>}
+        {activity.completed && <span className="thumb-done"><CheckIcon /></span>}
       </div>
 
-      {/* Delete button */}
-      <button
-        onClick={() => onDelete(dayId, activity.id)}
-        className="mt-1 p-1.5 rounded-lg text-text-muted
-          opacity-0 group-hover:opacity-100
-          hover:text-accent-rose hover:bg-accent-rose/10
-          transition-all duration-200"
-        aria-label="Delete activity"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
+      {editing ? (
+        <form
+          className="activity-edit"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (draft.title.trim()) onEdit(activity.id, { ...draft, title: draft.title.trim(), edited: true });
+            setEditing(false);
+          }}
         >
-          <path d="M2 4h10M5 4V2.5a1 1 0 011-1h2a1 1 0 011 1V4M11 4v7.5a1.5 1.5 0 01-1.5 1.5h-5A1.5 1.5 0 013 11.5V4" />
-        </svg>
-      </button>
+          <input aria-label="Activity title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required autoFocus />
+          <div className="activity-edit-row">
+            <input aria-label="Time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="Time" />
+            <input aria-label="Place" value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value })} placeholder="Place" />
+          </div>
+          <textarea aria-label="Notes" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Add a note" />
+          <div className="activity-edit-actions">
+            <button type="button" className="ghost-pill" onClick={() => { setDraft(draftFrom(activity)); setEditing(false); }}>Cancel</button>
+            <button type="submit" className="dark-pill small">Save</button>
+          </div>
+        </form>
+      ) : (
+        <button type="button" className="activity-main" onClick={() => onSelect(selected ? null : activity.id)} aria-expanded={selected}>
+          <span className="activity-title">
+            {activity.title}
+            {activity.edited && <span className="edited-tag">Edited</span>}
+          </span>
+          {meta && <span className="activity-meta">{meta}</span>}
+          {selected && (activity.description || activity.cost || activity.duration) && (
+            <span className="activity-details">
+              {activity.description && <span>{activity.description}</span>}
+              {(activity.cost || activity.duration) && (
+                <span className="activity-facts">{[activity.duration, activity.cost].filter(Boolean).join(" · ")}</span>
+              )}
+            </span>
+          )}
+        </button>
+      )}
+
+      {!editing && (
+        <div className="activity-actions" ref={menuRef}>
+          <button type="button" className="icon-button" onClick={() => { setDraft(draftFrom(activity)); setEditing(true); }} aria-label={`Edit ${activity.title}`}>
+            <PencilIcon />
+          </button>
+          <button type="button" className="icon-button" onClick={() => setMenuOpen(!menuOpen)} aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`More options for ${activity.title}`}>
+            <MoreIcon />
+          </button>
+          {menuOpen && (
+            <div className="row-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => { onToggle(dayId, activity.id); setMenuOpen(false); }}>
+                <CheckIcon /> {activity.completed ? "Mark as not done" : "Mark as done"}
+              </button>
+              <button type="button" role="menuitem" className="danger" onClick={() => { setMenuOpen(false); onDelete(dayId, activity.id); }}>
+                <TrashIcon /> Remove from plan
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

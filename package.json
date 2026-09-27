@@ -1,10 +1,13 @@
 {
-  "name": "trip-planner",
+  "name": "roam-trip-planner",
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-maplibre-worker.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
+    "gen:land-mask": "node scripts/generate-land-mask.mjs",
     "start": "next start",
     "lint": "eslint"
   },
@@ -13,6 +16,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "groq-sdk": "^1.6.0",
+    "maplibre-gl": "^6.11.2",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -20,8 +24,11 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "d3-geo": "^3.1.1",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   }
 }

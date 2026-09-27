@@ -1,21 +1,28 @@
 "use client";
 
-import { useRef, useCallback, useEffect, useState } from "react";
-import TripInput from "@/components/TripInput";
-import EmptyState from "@/components/EmptyState";
-import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import DestinationGlobe from "@/components/DestinationGlobe";
 import ErrorBanner from "@/components/ErrorBanner";
 import ItineraryView from "@/components/ItineraryView";
-import { useTripState } from "@/hooks/useTripState";
+import RefineInput from "@/components/RefineInput";
+import TripMap from "@/components/TripMap";
+import { ArrowIcon, BookmarkIcon, CheckIcon, CloseIcon, PlusIcon, SparkleIcon } from "@/components/icons";
+import { useDayRoutes } from "@/hooks/useDayRoutes";
 import { useGenerateTrip } from "@/hooks/useGenerateTrip";
+import { usePlaceImages } from "@/hooks/usePlaceImages";
+import { useTripState } from "@/hooks/useTripState";
+import { DESTINATIONS } from "@/lib/destinations";
+import { getTripCenter, getTripStops } from "@/lib/geo";
 
-// LocalStorage key for saving trips
 const STORAGE_KEY = "tripplanner_saved_trips";
+// If map tiles are slow, don't hold the zoomed-in globe forever.
+const MAP_READY_TIMEOUT_MS = 3500;
+const DESKTOP_MIN_WIDTH = 900;
 
 function loadSavedTrips() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.data?.stops) : [];
   } catch {
     return [];
   }
@@ -23,260 +30,354 @@ function loadSavedTrips() {
 
 function saveTripToStorage(trip) {
   try {
-    const saved = loadSavedTrips();
-    const entry = {
-      id: Date.now(),
-      title: trip.tripTitle,
-      savedAt: new Date().toISOString(),
-      data: trip,
-    };
-    saved.unshift(entry);
-    // Keep only latest 10
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved.slice(0, 10)));
+    // Dedupe on the stable tripId so re-saving an edited trip updates its entry,
+    // while two distinct trips that share an AI-generated title stay separate.
+    const saved = loadSavedTrips().filter((item) => item.data?.tripId !== trip.tripId);
+    const entry = { id: Date.now(), title: trip.tripTitle, savedAt: new Date().toISOString(), data: trip };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([entry, ...saved].slice(0, 10)));
     return true;
   } catch {
     return false;
   }
 }
 
+const placeTitle = (trip) => trip?.destination?.landmark || trip?.destination?.name || "";
+
+function destinationLabel(trip) {
+  const { name, country } = trip.destination || {};
+  if (!name) return trip.tripTitle;
+  return country && country !== name ? `${name}, ${country}` : name;
+}
+
+function savedMeta(saved) {
+  const days = saved.data.stops.length;
+  const date = new Date(saved.savedAt).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  return `${date} · ${days} ${days === 1 ? "day" : "days"}`;
+}
+
 export default function HomePage() {
-  const {
-    trip,
-    setTrip,
-    toggleActivity,
-    deleteActivity,
-    deleteDay,
-    reorderActivities,
-    reorderDays,
-    togglePackingItem,
-    clearTrip,
-  } = useTripState();
-
-  const lastInputRef = useRef("");
-  const inputRef = useRef(null);
-
-  const { loading, error, generate, cancel, clearError } = useGenerateTrip(
-    useCallback(
-      (data) => {
-        setTrip(data);
-      },
-      [setTrip]
-    )
-  );
-
-  // Saved trips state
+  const { trip, setTrip, toggleActivity, deleteActivity, deleteDay, editActivity, reorderActivities, reorderDays, togglePackingItem, clearTrip } = useTripState();
+  const [view, setView] = useState("home"); // home → arriving → trip
   const [savedTrips, setSavedTrips] = useState([]);
-  const [showSaved, setShowSaved] = useState(false);
+  const [prompt, setPrompt] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [activeDayId, setActiveDayId] = useState(null);
+  const [hoveredStopId, setHoveredStopId] = useState(null);
+  const [selectedStopId, setSelectedStopId] = useState(null);
+  const [insets, setInsets] = useState({ right: 0, bottom: 0 });
+  const lastRequestRef = useRef(null);
+  const viewRef = useRef(view);
+  const tripRef = useRef(trip);
+  const arrivalRef = useRef({ globe: false, map: false, timer: null });
+  const panelRef = useRef(null);
+  const saveTimer = useRef(null);
 
-  // Load saved trips on mount
   useEffect(() => {
-    setSavedTrips(loadSavedTrips());
+    viewRef.current = view;
+    tripRef.current = trip;
+  });
+
+  // ── Arrival: globe dive + map load must both finish before the reveal ─────
+  const revealIfReady = useCallback(() => {
+    const arrival = arrivalRef.current;
+    if (viewRef.current === "arriving" && arrival.globe && arrival.map) {
+      clearTimeout(arrival.timer);
+      setView("trip");
+    }
   }, []);
 
-  const handleGenerate = (input) => {
-    lastInputRef.current = input;
-    generate({ userInput: input });
-  };
+  const beginArrival = useCallback((data) => {
+    clearTimeout(arrivalRef.current.timer);
+    arrivalRef.current = { globe: false, map: false, timer: null };
+    setTrip(data);
+    setActiveDayId(null);
+    setSelectedStopId(null);
+    setHoveredStopId(null);
+    const skipGlobe = !getTripCenter(data) || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setView(skipGlobe ? "trip" : "arriving");
+  }, [setTrip]);
 
-  const handleRetry = () => {
-    if (lastInputRef.current) {
-      generate({ userInput: lastInputRef.current });
-    }
+  const handleGlobeArrived = useCallback(() => {
+    arrivalRef.current.globe = true;
+    arrivalRef.current.timer = setTimeout(() => {
+      if (viewRef.current === "arriving") setView("trip");
+    }, MAP_READY_TIMEOUT_MS);
+    revealIfReady();
+  }, [revealIfReady]);
+
+  const handleMapReady = useCallback(() => {
+    arrivalRef.current.map = true;
+    revealIfReady();
+  }, [revealIfReady]);
+
+  const { loading, error, generate, cancel, clearError } = useGenerateTrip(
+    useCallback((data) => {
+      if (viewRef.current === "trip" && tripRef.current) {
+        // A refinement: update in place and keep the trip's identity.
+        setTrip({ ...data, tripId: tripRef.current.tripId });
+      } else {
+        beginArrival(data);
+      }
+    }, [setTrip, beginArrival])
+  );
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setSavedTrips(loadSavedTrips()));
+    const arrival = arrivalRef.current;
+    return () => {
+      window.cancelAnimationFrame(frame);
+      clearTimeout(saveTimer.current);
+      clearTimeout(arrival.timer);
+    };
+  }, []);
+
+  // Keep the map's framing clear of the itinerary panel (side panel on
+  // desktop, bottom sheet on small screens).
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const measure = () => {
+      const desktop = window.innerWidth >= DESKTOP_MIN_WIDTH;
+      setInsets({ right: desktop ? panel.offsetWidth : 0, bottom: desktop ? 0 : panel.offsetHeight });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [view]);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const handleGenerate = (input) => {
+    const cleanInput = input.trim();
+    if (!cleanInput || loading) return;
+    lastRequestRef.current = { userInput: cleanInput };
+    setPrompt(cleanInput);
+    generate(lastRequestRef.current);
   };
 
   const handleRefine = (refinement) => {
     if (!trip) return;
-    // Strip client-side properties before sending to AI
+    // Send the plan without client-only fields (undefined keys drop out of JSON).
     const cleanTrip = {
       ...trip,
-      packingList: trip.packingList?.map((item) =>
-        typeof item === "object" ? item.text : item
-      ),
+      tripId: undefined,
+      packingList: trip.packingList?.map((item) => (typeof item === "object" ? item.text : item)),
       stops: trip.stops.map((stop) => ({
         ...stop,
-        activities: stop.activities.map(({ id, completed, ...rest }) => rest),
+        id: undefined,
+        activities: stop.activities.map((activity) => ({ ...activity, id: undefined, completed: undefined, edited: undefined })),
       })),
     };
-    generate({ existingTrip: cleanTrip, refinement });
+    lastRequestRef.current = { existingTrip: cleanTrip, refinement };
+    generate(lastRequestRef.current);
   };
 
-  const handleExampleClick = (prompt) => {
-    // Set the input value and auto-submit
-    handleGenerate(prompt);
+  const retryLastRequest = () => {
+    if (lastRequestRef.current) generate(lastRequestRef.current);
   };
 
   const handleSave = () => {
-    if (trip) {
-      const success = saveTripToStorage(trip);
-      setSaveMessage(success ? "Trip saved!" : "Failed to save");
-      setSavedTrips(loadSavedTrips());
-      setTimeout(() => setSaveMessage(""), 2000);
-    }
-  };
-
-  const handleLoadTrip = (savedTrip) => {
-    setTrip(savedTrip.data);
-    setShowSaved(false);
+    if (!trip) return;
+    const success = saveTripToStorage(trip);
+    setSaveMessage(success ? "Saved" : "Couldn’t save");
+    setSavedTrips(loadSavedTrips());
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => setSaveMessage(""), 2200);
   };
 
   const handleDeleteSaved = (id) => {
+    const remaining = loadSavedTrips().filter((item) => item.id !== id);
     try {
-      const saved = loadSavedTrips().filter((t) => t.id !== id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-      setSavedTrips(saved);
-    } catch {}
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
+      setSavedTrips(remaining);
+    } catch { /* Keep the in-memory list unchanged if storage is unavailable. */ }
   };
 
+  const startNewTrip = () => {
+    cancel();
+    clearError();
+    clearTimeout(arrivalRef.current.timer);
+    clearTrip();
+    setPrompt("");
+    setView("home");
+    setSavedTrips(loadSavedTrips());
+  };
+
+  const selectStop = (stopId) => {
+    setSelectedStopId(stopId);
+    if (!stopId) return;
+    const day = trip?.stops.find((stop) => stop.activities.some((activity) => activity.id === stopId));
+    if (day && activeDayId && activeDayId !== day.id) setActiveDayId(day.id);
+  };
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const stops = useMemo(() => getTripStops(trip), [trip]);
+  const stopNumbers = useMemo(() => Object.fromEntries(stops.map((stop) => [stop.id, stop.number])), [stops]);
+  const center = useMemo(() => getTripCenter(trip), [trip]);
+  const dayRoutes = useDayRoutes(trip);
+  const images = usePlaceImages([
+    placeTitle(trip),
+    ...(trip?.stops.flatMap((day) => day.activities.map((activity) => activity.location)) || []),
+    ...savedTrips.slice(0, 5).map((saved) => placeTitle(saved.data)),
+  ]);
+
+  const globeMode = view === "arriving" ? "arriving" : loading && view === "home" ? "thinking" : "idle";
+  const showMap = view !== "home" && trip;
+
   return (
-    <div className="relative z-10 flex flex-col min-h-screen">
-      {/* Header */}
-      <header className="border-b border-white/[0.06] bg-background/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="text-xl">🗺️</span>
-            <h1 className="text-base font-semibold text-text-primary">
-              Trip Planner
-            </h1>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-              AI
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Saved trips toggle */}
-            <button
-              onClick={() => setShowSaved(!showSaved)}
-              className="px-3 py-1.5 rounded-lg text-xs text-text-secondary
-                hover:text-text-primary hover:bg-white/5
-                transition-all duration-200 flex items-center gap-1.5"
-            >
-              <span>📋</span>
-              Saved ({savedTrips.length})
-            </button>
-
-            {/* Save current trip */}
-            {trip && (
-              <button
-                onClick={handleSave}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium
-                  bg-accent-green/10 text-accent-green
-                  hover:bg-accent-green/20 transition-all duration-200
-                  flex items-center gap-1.5"
-              >
-                {saveMessage || (
-                  <>
-                    <span>💾</span> Save
-                  </>
-                )}
-              </button>
-            )}
-
-            {/* New trip */}
-            {trip && (
-              <button
-                onClick={clearTrip}
-                className="px-3 py-1.5 rounded-lg text-xs text-text-muted
-                  hover:text-text-secondary hover:bg-white/5
-                  transition-all duration-200"
-              >
-                + New
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Saved trips dropdown */}
-        {showSaved && (
-          <div className="border-t border-white/[0.06] bg-surface/90 backdrop-blur-md">
-            <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3">
-              {savedTrips.length === 0 ? (
-                <p className="text-sm text-text-muted text-center py-2">
-                  No saved trips yet
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {savedTrips.map((saved) => (
-                    <div
-                      key={saved.id}
-                      className="flex items-center justify-between glass-card px-3 py-2"
-                    >
-                      <button
-                        onClick={() => handleLoadTrip(saved)}
-                        className="flex-1 text-left"
-                      >
-                        <span className="text-sm text-text-primary">
-                          {saved.title}
-                        </span>
-                        <span className="text-xs text-text-muted ml-2">
-                          {new Date(saved.savedAt).toLocaleDateString()}
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => handleDeleteSaved(saved.id)}
-                        className="p-1 text-text-muted hover:text-accent-rose
-                          transition-colors"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+    <div className={`roam-app phase-${view}`}>
+      <header className="roam-header">
+        <button type="button" className="roam-brand" onClick={startNewTrip} aria-label="Roam home">roam</button>
+        {view === "trip" && trip && (
+          <div className="trip-header-title"><span>{trip.tripTitle}</span></div>
         )}
+        <div className="header-actions">
+          {view === "trip" && trip && (
+            <>
+              <button type="button" className="outline-pill" onClick={handleSave}>
+                {saveMessage ? <CheckIcon /> : <BookmarkIcon />}
+                <span>{saveMessage || "Save trip"}</span>
+              </button>
+              <button type="button" className="outline-pill" onClick={startNewTrip}>
+                <PlusIcon /><span>New trip</span>
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
-      {/* Main content */}
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6">
-        {/* Input area — always visible when no trip */}
-        {!trip && (
-          <div className="mb-6">
-            <TripInput
-              ref={inputRef}
-              onSubmit={handleGenerate}
-              loading={loading}
-              onCancel={cancel}
+      <main className="roam-stage">
+        {showMap && (
+          <div className={`map-layer ${view === "trip" ? "is-visible" : ""}`}>
+            <TripMap
+              key={trip.tripId}
+              center={center}
+              stops={stops}
+              dayRoutes={dayRoutes}
+              activeDayId={activeDayId}
+              hoveredStopId={hoveredStopId}
+              selectedStopId={selectedStopId}
+              revealed={view === "trip"}
+              insets={insets}
+              onReady={handleMapReady}
+              onStopSelect={selectStop}
             />
           </div>
         )}
 
-        {/* Error banner */}
-        <ErrorBanner
-          error={error}
-          onRetry={handleRetry}
-          onDismiss={clearError}
+        <DestinationGlobe
+          destinations={DESTINATIONS}
+          mode={globeMode}
+          target={view === "arriving" ? center : null}
+          hidden={view === "trip"}
+          disabled={loading}
+          onSelect={handleGenerate}
+          onArrive={handleGlobeArrived}
         />
 
-        {/* Content states */}
-        {loading && !trip && <LoadingSkeleton />}
+        {view !== "trip" && (
+          <div className="home-ui" aria-hidden={view === "arriving"}>
+            <aside className="recent-card" aria-label="Recent trips">
+              <h2>Recent trips</h2>
+              {savedTrips.length ? (
+                <ul>
+                  {savedTrips.slice(0, 5).map((saved, index) => {
+                    const image = images[placeTitle(saved.data)];
+                    return (
+                      <li key={saved.id}>
+                        <button type="button" className="recent-open" onClick={() => beginArrival(saved.data)} disabled={loading}>
+                          <span className={`recent-thumb tint-${index % 5}`} style={image ? { backgroundImage: `url("${image}")` } : undefined} aria-hidden="true" />
+                          <span className="recent-text">
+                            <strong>{saved.title}</strong>
+                            <small>{savedMeta(saved)}</small>
+                          </span>
+                          <span className="recent-chevron" aria-hidden="true">›</span>
+                        </button>
+                        <button type="button" className="icon-button recent-delete" onClick={() => handleDeleteSaved(saved.id)} aria-label={`Delete ${saved.title}`}>
+                          <CloseIcon />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="recent-empty">Trips you save will be waiting here.</p>
+              )}
+            </aside>
 
-        {!loading && !trip && !error && (
-          <EmptyState onExampleClick={handleExampleClick} />
+            <div className="composer-wrap">
+              <ErrorBanner error={view === "home" ? error : null} onRetry={retryLastRequest} onDismiss={clearError} />
+              {loading && view === "home" && (
+                <p className="thinking-caption" role="status">
+                  <SparkleIcon /> Sketching your trip{prompt ? ` — “${prompt.length > 60 ? `${prompt.slice(0, 57)}…` : prompt}”` : ""}
+                </p>
+              )}
+              <form className={`trip-composer ${loading ? "is-loading" : ""}`} onSubmit={(event) => { event.preventDefault(); handleGenerate(prompt); }}>
+                <span className="composer-icon" aria-hidden="true"><SparkleIcon /></span>
+                <label className="sr-only" htmlFor="roam-prompt">Where would you like to go?</label>
+                <input
+                  id="roam-prompt"
+                  value={prompt}
+                  maxLength={500}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  placeholder="Where would you like to go?"
+                  disabled={loading}
+                  autoComplete="off"
+                />
+                {loading ? (
+                  <button type="button" className="dark-pill composer-submit" onClick={cancel}>Cancel</button>
+                ) : (
+                  <button type="submit" className="dark-pill composer-submit" disabled={!prompt.trim()} aria-label="Plan my trip">
+                    <span className="submit-label">Plan my trip</span> <ArrowIcon />
+                  </button>
+                )}
+              </form>
+            </div>
+          </div>
         )}
 
-        {trip && (
-          <ItineraryView
-            trip={trip}
-            onToggleActivity={toggleActivity}
-            onDeleteActivity={deleteActivity}
-            onDeleteDay={deleteDay}
-            onReorderActivities={reorderActivities}
-            onReorderDays={reorderDays}
-            onTogglePackingItem={togglePackingItem}
-            onRefine={handleRefine}
-            refineLoading={loading}
-          />
+        {showMap && (
+          <aside ref={panelRef} className={`trip-panel ${view === "trip" ? "is-open" : ""}`} aria-label="Itinerary">
+            <div className="panel-scroll">
+              <header className="trip-hero">
+                <div className="hero-image" style={images[placeTitle(trip)] ? { backgroundImage: `url("${images[placeTitle(trip)]}")` } : undefined} aria-hidden="true" />
+                <div className="hero-text">
+                  <h1>{destinationLabel(trip)}</h1>
+                  <p className="hero-meta">
+                    {trip.stops.length} {trip.stops.length === 1 ? "day" : "days"}
+                    {trip.totalBudgetEstimate && <> · {trip.totalBudgetEstimate}</>}
+                  </p>
+                </div>
+              </header>
+              {trip.summary && <p className="trip-summary">{trip.summary}</p>}
+              <ErrorBanner error={error} onRetry={retryLastRequest} onDismiss={clearError} />
+              <div className={`itinerary-wrap ${loading ? "is-refreshing" : ""}`} aria-busy={loading}>
+                <ItineraryView
+                  trip={trip}
+                  images={images}
+                  stopNumbers={stopNumbers}
+                  activeDayId={activeDayId}
+                  hoveredStopId={hoveredStopId}
+                  selectedStopId={selectedStopId}
+                  onSelectDay={setActiveDayId}
+                  onHoverStop={setHoveredStopId}
+                  onSelectStop={selectStop}
+                  onToggleActivity={toggleActivity}
+                  onDeleteActivity={deleteActivity}
+                  onDeleteDay={(dayId) => { if (activeDayId === dayId) setActiveDayId(null); deleteDay(dayId); }}
+                  onEditActivity={editActivity}
+                  onReorderActivities={reorderActivities}
+                  onReorderDays={reorderDays}
+                  onTogglePackingItem={togglePackingItem}
+                />
+              </div>
+            </div>
+            <div className="panel-footer">
+              <RefineInput onRefine={handleRefine} loading={loading} />
+              <p className="panel-disclaimer">AI suggestions — check places, hours and prices before you go.</p>
+            </div>
+          </aside>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-white/[0.06] py-4">
-        <p className="text-center text-xs text-text-muted">
-          Built with Next.js & Groq AI · Trip Planner
-        </p>
-      </footer>
     </div>
   );
 }

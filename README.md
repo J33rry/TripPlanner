@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Roam
 
-## Getting Started
+Roam is an AI trip planner built with Next.js 16, React 19, Groq and MapLibre. Spin the globe, describe a trip in your own words, and watch Roam dive from the globe into a map of your itinerary, which you can then edit, reorder and refine.
 
-First, run the development server:
+## Run locally
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. Install dependencies with `npm install`.
+2. Copy `.env.example` to `.env.local` and add a Groq API key to `GROQ_API_KEY`.
+3. Start the development server with `npm run dev`.
+4. Open [http://localhost:3000](http://localhost:3000).
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The API key is read by the server route at `app/api/generate/route.js`; it is not exposed to browser code. Never commit `.env.local`.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `GROQ_API_KEY` | Yes | Server-side access to Groq itinerary generation and refinement. |
+| `GROQ_MODEL` | No | Override the Groq model used for generation. Defaults to `openai/gpt-oss-120b`. |
 
-## Learn More
+## Current features
 
-To learn more about Next.js, take a look at the following resources:
+- **Dotted globe home screen** (canvas): real coastlines as a 1° dot grid, slow auto-spin, drag to rotate, 3D orbit rings and flight arcs, and London / Paris / India markers with hover cards ("Plan a trip here").
+- **AI-orb thinking state**: while a plan is generated the land dots leave their continents and swirl around three axes in a pulsing purple orb, then flow back when the plan arrives (or on error/cancel).
+- **Globe → map transition**: the globe turns to face the destination and dives in; a real map is loaded underneath at the exact matching globe scale, crossfades in, and flies down to street level to frame the itinerary.
+- **Trip map**: numbered pins for every activity, per-day street routes (walking in a city, driving between spread-out stops, straight lines for long hops or if routing fails), a route legend with distance and time, day focus, and hover/click sync between map and list.
+- **Itinerary panel**: day cards, place photos, inline editing, done/remove menu, drag-and-drop reordering of activities and days, packing list, tips, and AI refinement ("Make day 2 more relaxed…").
+- Server-side Groq requests with strict JSON-schema output, Zod validation, retry, cancellation/stale-response protection, and structured errors.
+- Browser-local trip saving, reopening and deletion (five shown on the home screen, ten kept).
+- Responsive (side panel on desktop, bottom sheet on phones) and reduced-motion aware.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## External services
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+All are free and keyless; none receive the Groq key.
 
-## Deploy on Vercel
+| Service | Used for | Called from |
+| --- | --- | --- |
+| [OpenFreeMap](https://openfreemap.org) | Vector map tiles (OpenStreetMap data) | Browser, via MapLibre GL |
+| [FOSSGIS OSRM](https://routing.openstreetmap.de/about.html) | Walking/driving routes | Server proxy `app/api/directions/route.js` |
+| [Wikipedia API](https://www.mediawiki.org/wiki/API:Main_page) | Place and destination photos | Browser (`hooks/usePlaceImages.js`) |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The routing and tile services are community-run and best-effort; the app falls back to straight-line routes and illustrated thumbnails when they are unavailable. For production traffic, move to a provider with an SLA.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Known limitations
+
+- Place coordinates come from the AI. Obviously wrong ones are dropped (missing, 0,0, or more than 3,000 km from the destination), but pins can still be slightly off, and Roam does not verify place names, opening hours or prices.
+- Trips saved before map support have no coordinates; they open on a world map until refined.
+- Photos are matched by Wikipedia article title, so some places show an illustrated fallback instead.
+- Saved trips stay in the current browser's local storage and are not synced.
+- Trip generation requires a valid Groq API key and network access; strict JSON-schema output is used for `openai/gpt-oss-*` models, other models fall back to JSON mode.
+
+## Scripts
+
+- `npm run dev` — local development server (copies the MapLibre worker into `public/vendor/` first).
+- `npm run build` — production build (same copy step).
+- `npm run start` — serve the production build.
+- `npm run lint` — run ESLint.
+- `npm run gen:land-mask` — regenerate `lib/landMask.js`, the globe's land-dot bitmask, from Natural Earth data.

@@ -89,6 +89,8 @@ export function useGenerateTrip(onSuccess) {
   );
 
   const cancel = useCallback(() => {
+    // Invalidate even a response that has arrived but is still being parsed.
+    requestIdRef.current += 1;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;

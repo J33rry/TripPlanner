@@ -14,11 +14,22 @@ const ACTIONS = {
   CLEAR_TRIP: "CLEAR_TRIP",
 };
 
+function newTripId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `trip-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function tripReducer(state, action) {
   switch (action.type) {
     case ACTIONS.SET_TRIP:
       return {
         ...action.payload,
+        // Stable identity so saved trips dedupe on this rather than on the
+        // (possibly colliding) AI-generated title. Preserved when reloading a
+        // saved trip; minted for freshly generated ones.
+        tripId: action.payload.tripId || newTripId(),
         // Add checked state to packing list
         packingList: (action.payload.packingList || []).map((item) =>
           typeof item === "string" ? { text: item, checked: false } : item
@@ -98,7 +109,7 @@ function tripReducer(state, action) {
     case ACTIONS.REORDER_DAYS: {
       return {
         ...state,
-        stops: action.payload.stops,
+        stops: action.payload.stops.map((stop, index) => ({ ...stop, day: index + 1 })),
       };
     }
 

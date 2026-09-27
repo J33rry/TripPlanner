@@ -2,6 +2,8 @@ import Groq from "groq-sdk";
 import { validateTrip } from "@/lib/schema";
 import { parseAIResponse } from "@/lib/parseResponse";
 import { buildPrompt, buildRefinePrompt } from "@/lib/prompt";
+import { DEFAULT_GROQ_MODEL } from "@/lib/constants";
+import { TRIP_JSON_SCHEMA } from "@/lib/tripJsonSchema";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -36,16 +38,40 @@ export async function POST(request) {
     }
 
     // Call Groq API
-    const chatCompletion = await groq.chat.completions.create({
+    const model = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
+    const isGptOss = model.startsWith("openai/gpt-oss");
+    const completionRequest = {
       messages: [
         { role: "system", content: prompt.system },
         { role: "user", content: prompt.user },
       ],
-      model: "openai/gpt-oss-120b",
+      model,
       temperature: 0.7,
-      max_tokens: 4096,
-      response_format: { type: "json_object" },
-    });
+      // Reasoning tokens count toward this limit on gpt-oss models, and the
+      // itinerary now carries coordinates, so leave generous headroom.
+      max_completion_tokens: 8192,
+      ...(isGptOss
+        ? {
+            // Keep hidden reasoning short so the plan arrives quickly, and use
+            // strict structured outputs so the JSON can't come back malformed.
+            reasoning_effort: "low",
+            response_format: {
+              type: "json_schema",
+              json_schema: { name: "trip_itinerary", schema: TRIP_JSON_SCHEMA, strict: true },
+            },
+          }
+        : // Other models may not support strict schemas or reasoning_effort.
+          { response_format: { type: "json_object" } }),
+    };
+
+    let chatCompletion;
+    try {
+      chatCompletion = await groq.chat.completions.create(completionRequest);
+    } catch (err) {
+      // Groq rejects generations that fail its JSON check; one retry usually succeeds.
+      if (err?.error?.error?.code !== "json_validate_failed") throw err;
+      chatCompletion = await groq.chat.completions.create(completionRequest);
+    }
 
     const rawContent = chatCompletion.choices?.[0]?.message?.content;
 
@@ -90,7 +116,8 @@ export async function POST(request) {
 
     return Response.json({ success: true, data: validated.data });
   } catch (err) {
-    console.error("API route error:", err);
+    // Keep logs readable: Groq errors can embed the model's whole output.
+    console.error("API route error:", err?.status ?? "", String(err?.message ?? err).slice(0, 300));
 
     // Handle Groq-specific errors
     if (err?.status === 429) {
@@ -100,6 +127,13 @@ export async function POST(request) {
           retryable: true,
         },
         { status: 429 }
+      );
+    }
+
+    if (err?.error?.error?.code === "json_validate_failed") {
+      return Response.json(
+        { error: "The AI's answer came back garbled. Please try again.", retryable: true },
+        { status: 502 }
       );
     }
 

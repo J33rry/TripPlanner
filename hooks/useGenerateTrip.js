@@ -54,6 +54,7 @@ export function useGenerateTrip(onSuccess) {
         if (!response.ok || !data.success) {
           setError({
             message: data.error || "Something went wrong",
+            code: data.code, // "guardrail" when the request isn't about travel
             details: data.details,
             raw: data.raw,
             retryable: data.retryable !== false,

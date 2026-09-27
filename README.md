@@ -32,6 +32,16 @@ The API key is read by the server route at `app/api/generate/route.js`; it is no
 - The globe, intro and open trip live in a persistent shell (`components/RoamShell.js`, rendered by `app/layout.js`), so moving between Home and Trips keeps the same globe and just glides it to the new framing.
 - Responsive (side panel on desktop, bottom sheet on phones) and reduced-motion aware.
 
+## Guardrails
+
+Roam only plans travel. Every request to `/api/generate` (new trips and refinements) is checked on the server (`lib/guardrails.js`):
+
+1. **Deterministic limits** — empty text, more than 1,000 characters, or text with no letters is rejected without a model call; refinements must carry a reasonably sized itinerary.
+2. **Policy classifier** — `openai/gpt-oss-safeguard-20b` classifies the text against a written travel policy as `travel`, `off_topic`, `prompt_injection` or `harmful`, returning strict JSON. It runs in parallel with generation, so allowed requests don't wait; any other verdict aborts the generation. If the check can't run, the request fails closed.
+3. **Hardened generation prompts** — the planner treats the user's text as data and never as instructions.
+
+Rejections return `422` with `code: "guardrail"` and a fixed, friendly message (never model-written), shown as a notice above the prompt or refine box. The classifier's reasoning is logged on the server only.
+
 ## External services
 
 All are free and keyless; none receive the Groq key.

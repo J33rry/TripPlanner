@@ -3,8 +3,11 @@
 export default function ErrorBanner({ error, onRetry, onDismiss }) {
   if (!error) return null;
 
+  // Guardrail rejections aren't failures — show them as a gentle notice.
+  const notice = error.code === "guardrail";
+
   return (
-    <div className="error-banner" role="alert">
+    <div className={`error-banner ${notice ? "is-notice" : ""}`} role={notice ? "status" : "alert"}>
       <div className="error-body">
         <strong>{error.message}</strong>
         {error.details?.length > 0 && (

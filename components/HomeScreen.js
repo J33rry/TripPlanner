@@ -60,7 +60,10 @@ export default function HomeScreen() {
             id="roam-prompt"
             value={prompt}
             maxLength={500}
-            onChange={(event) => setPrompt(event.target.value)}
+            onChange={(event) => {
+              setPrompt(event.target.value);
+              if (error?.code === "guardrail") clearError();
+            }}
             placeholder="Where would you like to go?"
             disabled={loading}
             autoComplete="off"

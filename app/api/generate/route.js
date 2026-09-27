@@ -4,6 +4,7 @@ import { parseAIResponse } from "@/lib/parseResponse";
 import { buildPrompt, buildRefinePrompt } from "@/lib/prompt";
 import { DEFAULT_GROQ_MODEL } from "@/lib/constants";
 import { TRIP_JSON_SCHEMA } from "@/lib/tripJsonSchema";
+import { classifyRequest, GuardrailError, MAX_EXISTING_TRIP_CHARS, precheck, rejection } from "@/lib/guardrails";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -21,21 +22,16 @@ export async function POST(request) {
 
     const body = await request.json();
     const { userInput, existingTrip, refinement } = body;
+    const mode = refinement != null ? "refine" : "create";
 
-    if (!userInput && !refinement) {
-      return Response.json(
-        { error: "Please provide a trip description." },
-        { status: 400 }
-      );
+    // Guardrail 1: deterministic limits.
+    const text = precheck(mode === "refine" ? refinement : userInput, mode);
+    if (mode === "refine" && (!existingTrip || JSON.stringify(existingTrip).length > MAX_EXISTING_TRIP_CHARS)) {
+      return Response.json({ error: "That itinerary can’t be refined. Please start a new trip." }, { status: 400 });
     }
 
     // Build the prompt (initial or refinement)
-    let prompt;
-    if (refinement && existingTrip) {
-      prompt = buildRefinePrompt(existingTrip, refinement);
-    } else {
-      prompt = buildPrompt(userInput);
-    }
+    const prompt = mode === "refine" ? buildRefinePrompt(existingTrip, text) : buildPrompt(text);
 
     // Call Groq API
     const model = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
@@ -64,14 +60,41 @@ export async function POST(request) {
           { response_format: { type: "json_object" } }),
     };
 
-    let chatCompletion;
+    // Guardrail 2: classify the request while the plan is generated in
+    // parallel, so allowed requests pay no extra latency. A rejection aborts
+    // the generation; if the check can't run, fail closed.
+    const generation = new AbortController();
+    const signal = AbortSignal.any([request.signal, generation.signal]);
+    const completionPromise = (async () => {
+      try {
+        return await groq.chat.completions.create(completionRequest, { signal });
+      } catch (err) {
+        // Groq rejects generations that fail its JSON check; one retry usually succeeds.
+        if (err?.error?.error?.code !== "json_validate_failed") throw err;
+        return groq.chat.completions.create(completionRequest, { signal });
+      }
+    })();
+    completionPromise.catch(() => {}); // settled below, or deliberately aborted
+
+    let verdict;
     try {
-      chatCompletion = await groq.chat.completions.create(completionRequest);
+      verdict = await classifyRequest(groq, { text, mode }, { signal: request.signal });
     } catch (err) {
-      // Groq rejects generations that fail its JSON check; one retry usually succeeds.
-      if (err?.error?.error?.code !== "json_validate_failed") throw err;
-      chatCompletion = await groq.chat.completions.create(completionRequest);
+      generation.abort();
+      if (err?.status === 429) throw err;
+      console.error("Guardrail check failed:", err?.status ?? "", String(err?.message ?? err).slice(0, 200));
+      return Response.json(
+        { error: "Roam couldn’t check your request just now. Please try again.", retryable: true },
+        { status: 503 }
+      );
     }
+    if (!verdict.allowed) {
+      generation.abort();
+      console.info(`Guardrail rejected (${mode}, ${verdict.category}): ${verdict.rationale.slice(0, 160)}`);
+      throw rejection(verdict.category, mode);
+    }
+
+    const chatCompletion = await completionPromise;
 
     const rawContent = chatCompletion.choices?.[0]?.message?.content;
 
@@ -116,6 +139,13 @@ export async function POST(request) {
 
     return Response.json({ success: true, data: validated.data });
   } catch (err) {
+    if (err instanceof GuardrailError) {
+      return Response.json(
+        { error: err.message, code: "guardrail", category: err.category, retryable: false },
+        { status: err.status }
+      );
+    }
+
     // Keep logs readable: Groq errors can embed the model's whole output.
     console.error("API route error:", err?.status ?? "", String(err?.message ?? err).slice(0, 300));
 

@@ -200,6 +200,8 @@ a.recent-open, a.trip-card { color: inherit; text-decoration: none; }
 /* ── Errors ──────────────────────────────────────────────────────────────── */
 .error-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 14px 16px; margin-bottom: 14px; background: #fff7f7; border: 1px solid #f0d4d6; border-radius: 16px; font-size: 14px; animation: fade-in 0.3s ease both; }
 .composer-wrap .error-banner { margin-bottom: 0; box-shadow: var(--shadow-sm); }
+.error-banner.is-notice { background: #f7f3fe; border-color: #e2d6f6; }
+.error-banner.is-notice strong { color: #4b3180; }
 .error-body { min-width: 0; }
 .error-body strong { display: block; font-weight: 500; }
 .error-body ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; }

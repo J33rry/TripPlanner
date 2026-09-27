@@ -3,14 +3,20 @@
 import { useState } from "react";
 import { SendIcon, SparkleIcon } from "./icons";
 
-export default function RefineInput({ onRefine, loading, placeholder = "Make day 2 more relaxed…" }) {
+export default function RefineInput({ onRefine, loading, error, placeholder = "Make day 2 more relaxed…" }) {
   const [value, setValue] = useState("");
+  const [wasLoading, setWasLoading] = useState(loading);
+  // Clear the request once it has been applied; keep it after a failure or a
+  // guardrail rejection so it can be reworded.
+  if (loading !== wasLoading) {
+    setWasLoading(loading);
+    if (!loading && !error) setValue("");
+  }
 
   const handleSubmit = (event) => {
     event.preventDefault();
     if (!value.trim() || loading) return;
     onRefine(value.trim());
-    setValue("");
   };
 
   return (

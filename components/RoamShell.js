@@ -489,7 +489,7 @@ export default function RoamShell({ children }) {
                 </div>
               </div>
               <div className="panel-footer">
-                <RefineInput onRefine={handleRefine} loading={loading} />
+                <RefineInput onRefine={handleRefine} loading={loading} error={error} />
                 <p className="panel-disclaimer">AI suggestions — check places, hours and prices before you go.</p>
               </div>
             </aside>

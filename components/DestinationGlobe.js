@@ -21,7 +21,7 @@ const START_VIEW = { lat: 18, lon: 22 };
 const MAX_TILT = 60;
 const ARRIVE_ROTATE_S = 1.5;
 const ARRIVE_ZOOM_START_S = 0.35;
-const ARRIVE_TOTAL_S = 2.1;
+const ARRIVE_TOTAL_S = 2.3;
 const INTRO_GROW_S = 1.35;
 const SCREEN_SPIN_DEG_PER_S = 150;
 
@@ -200,7 +200,7 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
 
     const collect = (dots, view, orbMix, r, cx, cy, baseAlpha, rot) => {
       const t = state.clock;
-      const dotSize = Math.max(0.7, r * 0.0034);
+      const dotSize = Math.min(4.5, Math.max(0.7, r * 0.0034));
       for (let i = 0; i < dots.count; i++) {
         let [x, y, z] = toView(dots.x[i], dots.y[i], dots.z[i], view);
         const family = dots.family[i];

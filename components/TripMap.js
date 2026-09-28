@@ -1,28 +1,38 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { arrivalRadius, zoomForGlobeRadius } from "@/lib/globeGeometry";
+import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
+import { arrivalRadius } from "@/lib/globeGeometry";
+import { cameraForPoints, centerWithPadding, easeOutCubic, flightPath, zoomForGlobeRadius } from "@/lib/mapCamera";
+import { MODE_STYLES, TRAVEL_MODES } from "@/lib/travelModes";
+import { MODE_ICONS } from "./icons";
 
-const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
-const WORKER_PATH = "/vendor/maplibre/maplibre-gl-worker.mjs";
+const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
 const REVEAL_FLY_MS = 2800;
-const REFIT_MS = 900;
+const REFIT_MS = 1100;
+const FIT_MAX_ZOOM = 16.5;
+const STOP_ZOOM = 15.5;
+const CITY_ZOOM = 12;
 
-const PAINT_OVERRIDES = {
-  background: { "background-color": "#f3f1ec" },
-  park: { "fill-color": "#d3e8c5", "fill-opacity": 0.85 },
-  landcover_wood: { "fill-color": "#d9ebcd", "fill-opacity": 0.55 },
-  landuse_residential: { "fill-color": "#eeebe5", "fill-opacity": 0.55 },
-  water: { "fill-color": "#b7daf0" },
-  waterway: { "line-color": "#b7daf0" },
-  building: { "fill-color": "#e8e5e0" },
-};
+function loadGoogleMaps() {
+  // A global flag, not a module one: hot reloads re-run this module, and the
+  // loader warns (printing the options, key included) if configured twice.
+  if (!globalThis.__roamMapsConfigured) {
+    setOptions({ key: API_KEY, v: "weekly" });
+    globalThis.__roamMapsConfigured = true;
+  }
+  return Promise.all([importLibrary("maps"), importLibrary("marker")]);
+}
 
-const ROUTE_SOURCE = "trip-routes";
-const STOP_SOURCE = "trip-stops";
+// Google reports a rejected key (wrong API, referrer not allowed) through this global hook.
+const authFailureListeners = new Set();
+if (typeof window !== "undefined") {
+  window.gm_authFailure = () => authFailureListeners.forEach((listener) => listener());
+}
 
 function formatDistance(meters) {
-  return meters >= 10000 ? `${Math.round(meters / 1000)} km` : `${(meters / 1000).toFixed(1)} km`;
+  return meters >= 10000 ? `${Math.round(meters / 1000).toLocaleString("en")} km` : `${(meters / 1000).toFixed(1)} km`;
 }
 
 function formatDuration(seconds) {
@@ -33,18 +43,74 @@ function formatDuration(seconds) {
   return rest ? `${hours} hr ${rest} min` : `${hours} hr`;
 }
 
-function boundsOf(points) {
-  let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
-  for (const [lng, lat] of points) {
-    west = Math.min(west, lng); east = Math.max(east, lng);
-    south = Math.min(south, lat); north = Math.max(north, lat);
+const toLatLng = ([lng, lat]) => ({ lat, lng });
+
+// Symbol paths for Google polylines, in symbol units centred on 0,0; "up" points along the line.
+const CIRCLE = "M -1,0 a 1,1 0 1,0 2,0 a 1,1 0 1,0 -2,0";
+const DASH = "M 0,-1 0,1";
+const TIE = "M -1,0 1,0";
+const PLANE = "M0 -9.5c.9 0 1.5.9 1.5 2V-3l7 4v2l-7-2v4.5l2 1.5v1.5L0 7.5l-3.5 1V7l2-1.5V1l-7 2v-2l7-4V-7.5c0-1.1.6-2 1.5-2Z";
+
+/** Polyline layers (white casing first) that draw one travel mode's line style. */
+function lineLayers(mode, emphasis) {
+  const { color, pattern } = MODE_STYLES[mode];
+  const casing = { strokeColor: "#ffffff", strokeOpacity: 0.75 * emphasis, strokeWeight: 7, zIndex: 1 };
+  const repeated = (icons) => ({ strokeOpacity: 0, zIndex: 2, icons });
+  const dash = (scale, weight, repeat) => ({
+    icon: { path: DASH, strokeColor: color, strokeOpacity: emphasis, strokeWeight: weight, scale },
+    offset: "0",
+    repeat,
+  });
+  switch (pattern) {
+    case "dots":
+      return [casing, repeated([{ icon: { path: CIRCLE, fillColor: color, fillOpacity: emphasis, strokeOpacity: 0, scale: 1.8 }, offset: "0", repeat: "8px" }])];
+    case "dash":
+      return [casing, repeated([dash(2, 3, "10px")])];
+    case "longdash":
+      return [casing, repeated([dash(3.5, 3.5, "14px")])];
+    case "rail":
+      return [
+        { ...casing, strokeWeight: 9 },
+        { strokeColor: color, strokeOpacity: emphasis, strokeWeight: 2.5, zIndex: 2 },
+        repeated([{ icon: { path: TIE, strokeColor: color, strokeOpacity: emphasis, strokeWeight: 2, scale: 3.5 }, offset: "0", repeat: "11px" }]),
+      ];
+    case "arc":
+      return [
+        { ...casing, geodesic: true },
+        {
+          ...repeated([
+            dash(2.5, 2.8, "12px"),
+            { icon: { path: PLANE, fillColor: color, fillOpacity: emphasis, strokeColor: "#ffffff", strokeOpacity: emphasis, strokeWeight: 1.2, scale: 0.95 }, offset: "50%" },
+          ]),
+          geodesic: true,
+        },
+      ];
+    default:
+      return [casing, { strokeColor: color, strokeOpacity: emphasis, strokeWeight: 3.5, zIndex: 2 }];
   }
-  return [[west, south], [east, north]];
 }
 
-function firstSymbolLayer(map) {
-  return map.getStyle().layers.find((layer) => layer.type === "symbol")?.id;
+/** A small line sample for the legend, matching the map's line style for the mode. */
+function LegendSwatch({ mode }) {
+  const { color, pattern } = MODE_STYLES[mode];
+  const line = { stroke: color, strokeWidth: 2.6, strokeLinecap: "round", fill: "none" };
+  return (
+    <svg className="legend-swatch" width="30" height="12" viewBox="0 0 30 12" aria-hidden="true">
+      {pattern === "dots" && [3, 9, 15, 21, 27].map((x) => <circle key={x} cx={x} cy="6" r="1.7" fill={color} />)}
+      {pattern === "dash" && <path d="M2 6h26" {...line} strokeDasharray="4 4.5" />}
+      {pattern === "longdash" && <path d="M2 6h26" {...line} strokeWidth="3" strokeDasharray="7 5" />}
+      {pattern === "solid" && <path d="M2 6h26" {...line} strokeWidth="3" />}
+      {pattern === "rail" && (
+        <>
+          <path d="M1 6h28" {...line} strokeWidth="2" />
+          <path d="M5 2.5v7M12 2.5v7M19 2.5v7M26 2.5v7" {...line} strokeWidth="1.6" />
+        </>
+      )}
+      {pattern === "arc" && <path d="M2 10Q15 -2 28 10" {...line} strokeDasharray="3.5 3.5" />}
+    </svg>
+  );
 }
+const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export default function TripMap({
   center,
@@ -58,138 +124,161 @@ export default function TripMap({
   onReady,
   onStopSelect,
 }) {
+  const frameRef = useRef(null);
   const containerRef = useRef(null);
+  const legendRef = useRef(null);
   const mapRef = useRef(null);
   const libRef = useRef(null);
   const markersRef = useRef(new Map());
+  const animationRef = useRef(0);
+  const initialCenter = useRef(center);
   const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(!API_KEY);
   const hasRevealed = useRef(false);
   const lastFitKey = useRef("");
 
   const live = useRef({ onReady, onStopSelect });
   useEffect(() => {
-    live.current = { onReady, onStopSelect };
+    live.current = { ...live.current, onReady, onStopSelect };
   });
 
   useEffect(() => {
-    let cancelled = false;
-    let map;
-    import("maplibre-gl")
-      .then((maplibregl) => {
-        if (cancelled) return;
-        libRef.current = maplibregl;
-        maplibregl.setWorkerUrl(new URL(WORKER_PATH, window.location.href).href);
+    if (!API_KEY) {
+      console.warn("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set, so the trip map is unavailable.");
+      live.current.onReady?.();
+      return;
+    }
 
-        const { width, height } = containerRef.current.getBoundingClientRect();
-        const start = center || { lat: 20, lng: 0 };
-        map = new maplibregl.Map({
-          container: containerRef.current,
-          style: STYLE_URL,
-          center: [start.lng, start.lat],
-          zoom: center ? zoomForGlobeRadius(arrivalRadius(width, height), start.lat) : 1.2,
-          attributionControl: false,
-          fadeDuration: 150,
+    let cancelled = false;
+    const listeners = [];
+    const fail = () => {
+      if (cancelled) return;
+      setFailed(true);
+      live.current.onReady?.();
+    };
+    authFailureListeners.add(fail);
+
+    loadGoogleMaps()
+      .then(([maps, marker]) => {
+        if (cancelled) return;
+        libRef.current = { Polyline: maps.Polyline, AdvancedMarkerElement: marker.AdvancedMarkerElement };
+
+        // Start exactly where the globe's arrival dive ends: same centre, same scale.
+        const { width, height } = frameRef.current.getBoundingClientRect();
+        const start = initialCenter.current;
+        const map = new maps.Map(containerRef.current, {
+          center: start || { lat: 20, lng: 0 },
+          zoom: start ? zoomForGlobeRadius(arrivalRadius(width, height), start.lat) : 2,
+          mapId: MAP_ID,
+          renderingType: maps.RenderingType.VECTOR,
+          colorScheme: "LIGHT",
+          isFractionalZoomEnabled: true,
+          disableDefaultUI: true,
+          clickableIcons: false,
+          gestureHandling: "greedy",
+          backgroundColor: "#f3f1ec",
         });
         mapRef.current = map;
 
-        map.on("style.load", () => {
-          map.setProjection({ type: "globe" });
-          for (const [layer, paint] of Object.entries(PAINT_OVERRIDES)) {
-            if (!map.getLayer(layer)) continue;
-            for (const [property, value] of Object.entries(paint)) map.setPaintProperty(layer, property, value);
-          }
-          const beforeId = firstSymbolLayer(map);
-          map.addSource(ROUTE_SOURCE, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-          map.addSource(STOP_SOURCE, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-          map.addLayer({
-            id: "trip-stop-halos",
-            type: "circle",
-            source: STOP_SOURCE,
-            paint: {
-              "circle-radius": 22,
-              "circle-color": "#a57be6",
-              "circle-opacity": ["*", 0.16, ["get", "emphasis"]],
-              "circle-blur": 0.55,
-            },
-          }, beforeId);
-          map.addLayer({
-            id: "trip-route-casing",
-            type: "line",
-            source: ROUTE_SOURCE,
-            layout: { "line-join": "round", "line-cap": "round" },
-            paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": ["*", 0.7, ["get", "emphasis"]] },
-          }, beforeId);
-          map.addLayer({
-            id: "trip-route-line",
-            type: "line",
-            source: ROUTE_SOURCE,
-            layout: { "line-join": "round", "line-cap": "round" },
-            paint: {
-              "line-color": "#7a4fd4",
-              "line-width": 2.6,
-              "line-dasharray": [1.4, 1.6],
-              "line-opacity": ["get", "emphasis"],
-            },
-          }, beforeId);
-          setLoaded(true);
-          map.once("idle", () => live.current.onReady?.());
+        const stopAnimation = () => cancelAnimationFrame(animationRef.current);
+        listeners.push(map.addListener("dragstart", stopAnimation));
+        containerRef.current.addEventListener("wheel", stopAnimation, { passive: true });
+        const ready = map.addListener("tilesloaded", () => {
+          ready.remove();
+          live.current.onReady?.();
         });
-        map.on("error", (event) => console.warn("Map error:", event?.error?.message));
+        listeners.push(ready);
+        setLoaded(true);
       })
       .catch((err) => {
         console.error("Could not load the map:", err);
-        setFailed(true);
-        live.current.onReady?.();
+        fail();
       });
 
     const markers = markersRef.current;
     return () => {
       cancelled = true;
-      markers.forEach((marker) => marker.remove());
+      authFailureListeners.delete(fail);
+      cancelAnimationFrame(animationRef.current);
+      listeners.forEach((listener) => listener.remove());
+      markers.forEach((marker) => { marker.map = null; });
       markers.clear();
-      map?.remove();
       mapRef.current = null;
     };
   }, []);
 
-  useEffect(() => {
+  // The visible map area once the itinerary panel is in place. The canvas
+  // shrinks with the panel's slide-in, so Google's logo and terms stay visible.
+  const finalSize = useCallback(() => {
+    const { width, height } = frameRef.current.getBoundingClientRect();
+    return { width: width - (insets?.right || 0), height: height - (insets?.bottom || 0) };
+  }, [insets?.right, insets?.bottom]);
+
+  const getPadding = useCallback(() => {
+    const { width, height } = finalSize();
+    const compact = width + (insets?.right || 0) < 900;
+    // Keep stops clear of the legend: it sits at the top on narrow screens and
+    // bottom-left otherwise, and grows with the number of travel modes shown.
+    const legendHeight = legendRef.current?.offsetHeight || 0;
+    const padding = {
+      top: compact ? Math.max(84, legendHeight + 64) : 96, // pins rise ~40px above their point
+      left: compact ? 28 : 72,
+      right: compact ? 28 : 64,
+      bottom: compact ? 28 : Math.max(110, legendHeight + 60),
+    };
+    const shrink = (total, room) => (total > room ? Math.max(0, room) / total : 1);
+    const sy = shrink(padding.top + padding.bottom, height - 90);
+    const sx = shrink(padding.left + padding.right, width - 90);
+    return { top: padding.top * sy, bottom: padding.bottom * sy, left: padding.left * sx, right: padding.right * sx };
+  }, [finalSize, insets?.right]);
+
+  const animateTo = useCallback((target, duration, easing) => {
     const map = mapRef.current;
-    if (!loaded || !map) return;
-    const emphasis = (dayId) => (!activeDayId || activeDayId === dayId ? 1 : 0.28);
-    map.getSource(ROUTE_SOURCE)?.setData({
-      type: "FeatureCollection",
-      features: dayRoutes
-        .filter((plan) => plan.coordinates.length >= 2)
-        .map((plan) => ({
-          type: "Feature",
-          properties: { dayId: plan.dayId, emphasis: emphasis(plan.dayId) },
-          geometry: plan.route?.geometry || { type: "LineString", coordinates: plan.coordinates },
-        })),
-    });
-    map.getSource(STOP_SOURCE)?.setData({
-      type: "FeatureCollection",
-      features: stops.map((stop) => ({
-        type: "Feature",
-        properties: { emphasis: emphasis(stop.dayId) },
-        geometry: { type: "Point", coordinates: stop.lngLat },
-      })),
-    });
-  }, [loaded, dayRoutes, stops, activeDayId]);
+    if (!map) return;
+    cancelAnimationFrame(animationRef.current);
+    if (!duration || prefersReducedMotion()) {
+      map.moveCamera(target);
+      return;
+    }
+    const from = { center: map.getCenter().toJSON(), zoom: map.getZoom() };
+    const path = flightPath(from, target, finalSize(), easing ? { easing } : undefined);
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      map.moveCamera(path(t));
+      if (t < 1) animationRef.current = requestAnimationFrame(step);
+    };
+    animationRef.current = requestAnimationFrame(step);
+  }, [finalSize]);
+
+  useEffect(() => {
+    live.current = { ...live.current, stops, getPadding, animateTo };
+  });
 
   useEffect(() => {
     const map = mapRef.current;
-    const maplibregl = libRef.current;
-    if (!loaded || !map || !maplibregl) return;
+    const lib = libRef.current;
+    if (!loaded || !map || !lib) return;
+    const lines = [];
+    for (const segment of dayRoutes) {
+      const path = (segment.route?.geometry?.coordinates || segment.coordinates).map(toLatLng);
+      const emphasis = !activeDayId || activeDayId === segment.dayId ? 1 : 0.28;
+      for (const layer of lineLayers(segment.mode, emphasis)) {
+        lines.push(new lib.Polyline({ map, path, clickable: false, ...layer }));
+      }
+    }
+    return () => lines.forEach((line) => line.setMap(null));
+  }, [loaded, dayRoutes, activeDayId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!loaded || !map || !lib) return;
     const markers = markersRef.current;
-    markers.forEach((marker) => marker.remove());
-    markers.clear();
     for (const stop of stops) {
-      const el = document.createElement("button");
-      el.type = "button";
+      const el = document.createElement("div");
       el.className = "map-pin";
       el.dataset.dayId = stop.dayId;
-      el.setAttribute("aria-label", `Stop ${stop.number}: ${stop.title}`);
       const head = document.createElement("span");
       head.className = "map-pin-head";
       head.textContent = String(stop.number);
@@ -197,40 +286,34 @@ export default function TripMap({
       label.className = "map-pin-label";
       label.textContent = stop.location || stop.title;
       el.append(head, label);
-      el.addEventListener("click", (event) => {
-        event.stopPropagation();
-        live.current.onStopSelect?.(stop.id);
+      const marker = new lib.AdvancedMarkerElement({
+        map,
+        position: toLatLng(stop.lngLat),
+        content: el,
+        title: `Stop ${stop.number}: ${stop.title}`,
+        gmpClickable: true,
       });
-      markers.set(stop.id, new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat(stop.lngLat).addTo(map));
+      marker.addEventListener("gmp-click", () => live.current.onStopSelect?.(stop.id));
+      markers.set(stop.id, marker);
     }
+    return () => {
+      markers.forEach((marker) => { marker.map = null; });
+      markers.clear();
+    };
   }, [loaded, stops]);
 
   useEffect(() => {
     markersRef.current.forEach((marker, id) => {
-      const el = marker.getElement();
-      el.classList.toggle("is-hovered", id === hoveredStopId || id === selectedStopId);
+      const el = marker.content;
+      const emphasised = id === hoveredStopId || id === selectedStopId;
+      el.classList.toggle("is-hovered", emphasised);
       el.classList.toggle("is-dimmed", Boolean(activeDayId) && el.dataset.dayId !== activeDayId);
+      marker.zIndex = emphasised ? 10 : null;
     });
   }, [hoveredStopId, selectedStopId, activeDayId, stops, loaded]);
 
-  const getPadding = useCallback(() => {
-    const { width, height } = containerRef.current.getBoundingClientRect();
-    const compact = width < 900;
-    const padding = {
-      top: compact ? 84 : 96,
-      left: compact ? 28 : 72,
-      right: (insets?.right || 0) + (compact ? 28 : 64),
-      bottom: (insets?.bottom || 0) + (compact ? 28 : 96),
-    };
-    const shrink = (total, room) => (total > room ? Math.max(0, room) / total : 1);
-    const sy = shrink(padding.top + padding.bottom, height - 90);
-    const sx = shrink(padding.left + padding.right, width - 90);
-    return { top: padding.top * sy, bottom: padding.bottom * sy, left: padding.left * sx, right: padding.right * sx };
-  }, [insets?.right, insets?.bottom]);
-
   useEffect(() => {
-    const map = mapRef.current;
-    if (!loaded || !map || !revealed) return;
+    if (!loaded || !mapRef.current || !revealed) return;
     const focus = activeDayId ? stops.filter((stop) => stop.dayId === activeDayId) : stops;
     const points = (focus.length ? focus : stops).map((stop) => stop.lngLat);
     const key = `${activeDayId || "all"}|${points.map((p) => p.join(",")).join(";")}|${insets?.right}|${insets?.bottom}`;
@@ -238,57 +321,75 @@ export default function TripMap({
     lastFitKey.current = key;
     const padding = getPadding();
 
+    // The first flight continues the globe's dive, so it starts fast and settles.
     const first = !hasRevealed.current;
     hasRevealed.current = true;
-    const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : first ? REVEAL_FLY_MS : REFIT_MS;
+    const duration = first ? REVEAL_FLY_MS : REFIT_MS;
+    const easing = first ? easeOutCubic : undefined;
 
     if (!points.length) {
-      if (center) map.flyTo({ center: [center.lng, center.lat], zoom: 11, padding, duration, essential: true });
+      if (center) animateTo({ center: centerWithPadding(center, CITY_ZOOM, padding), zoom: CITY_ZOOM }, duration, easing);
       return;
     }
     if (points.length === 1) {
-      map.flyTo({ center: points[0], zoom: 14.5, padding, duration, essential: true });
+      animateTo({ center: centerWithPadding(toLatLng(points[0]), STOP_ZOOM, padding), zoom: STOP_ZOOM }, duration, easing);
       return;
     }
-    map.fitBounds(boundsOf(points), { padding, maxZoom: 15.5, duration, essential: true, curve: 1.5 });
-  }, [loaded, revealed, stops, activeDayId, getPadding, insets?.right, insets?.bottom, center]);
+    animateTo(cameraForPoints(points, { size: finalSize(), padding, maxZoom: FIT_MAX_ZOOM }), duration, easing);
+  }, [loaded, revealed, stops, activeDayId, getPadding, finalSize, animateTo, insets?.right, insets?.bottom, center]);
 
   useEffect(() => {
     const map = mapRef.current;
-    const stop = stops.find((s) => s.id === selectedStopId);
+    const { stops: currentStops, getPadding: padding, animateTo: fly } = live.current;
+    const stop = currentStops?.find((s) => s.id === selectedStopId);
     if (!loaded || !map || !revealed || !stop) return;
-    map.easeTo({ center: stop.lngLat, zoom: Math.max(map.getZoom(), 14.5), padding: getPadding(), duration: 700 });
+    const zoom = Math.max(map.getZoom(), STOP_ZOOM);
+    fly({ center: centerWithPadding(toLatLng(stop.lngLat), zoom, padding()), zoom }, 700);
   }, [selectedStopId, loaded, revealed]);
 
   const legend = useMemo(() => {
-    const plans = dayRoutes.filter((plan) => plan.coordinates.length >= 2 && (!activeDayId || plan.dayId === activeDayId));
-    if (!plans.length) return null;
-    const routed = plans.filter((plan) => plan.route);
-    const walking = plans.every((plan) => plan.profile === "foot");
-    const label = activeDayId ? `Day ${plans[0].day} · ${walking ? "Walking" : "Driving"} route` : walking ? "Walking routes" : "Suggested routes";
-    let detail;
-    if (routed.length === plans.length) {
-      const distance = routed.reduce((sum, plan) => sum + plan.route.distance, 0);
-      const duration = routed.reduce((sum, plan) => sum + plan.route.duration, 0);
-      detail = `~${formatDistance(distance)} · ${formatDuration(duration)}`;
-    } else if (plans.some((plan) => plan.loading)) {
-      detail = "Finding the best way around…";
-    } else {
-      detail = `~${formatDistance(plans.reduce((sum, plan) => sum + plan.straightKm * 1000, 0))} as the crow flies`;
+    const segments = dayRoutes.filter((segment) => !activeDayId || segment.dayId === activeDayId);
+    if (!segments.length) return null;
+    const byMode = new Map();
+    for (const segment of segments) {
+      const entry = byMode.get(segment.mode) || { mode: segment.mode, meters: 0, seconds: 0, timed: true, loading: false };
+      entry.meters += segment.route ? segment.route.distance : segment.straightKm * 1000;
+      entry.seconds += segment.route?.duration || 0;
+      entry.timed &&= Boolean(segment.route);
+      entry.loading ||= segment.loading;
+      byMode.set(segment.mode, entry);
     }
-    return { label, detail, walking };
+    // Bus legs are routed as cars, so their times would be too optimistic; show distance only.
+    const rows = TRAVEL_MODES.filter((mode) => byMode.has(mode)).map((mode) => {
+      const { meters, seconds, timed, loading } = byMode.get(mode);
+      const detail = loading
+        ? "Finding the way…"
+        : timed && mode !== "bus"
+          ? `${formatDistance(meters)} · ${formatDuration(seconds)}`
+          : `~${formatDistance(meters)}`;
+      return { mode, detail };
+    });
+    return { title: activeDayId ? `Day ${segments[0].day} · Getting around` : "Getting around", rows };
   }, [dayRoutes, activeDayId]);
 
-  const zoomBy = (delta) => mapRef.current?.easeTo({ zoom: mapRef.current.getZoom() + delta, duration: 300 });
+  const zoomBy = (delta) => {
+    const map = mapRef.current;
+    if (map) animateTo({ center: map.getCenter().toJSON(), zoom: map.getZoom() + delta }, 300);
+  };
   const refit = () => {
     lastFitKey.current = "";
-    const map = mapRef.current;
-    if (map && stops.length > 1) map.fitBounds(boundsOf(stops.map((s) => s.lngLat)), { padding: getPadding(), maxZoom: 15.5, duration: REFIT_MS });
+    if (mapRef.current && stops.length > 1) {
+      animateTo(cameraForPoints(stops.map((s) => s.lngLat), { size: finalSize(), padding: getPadding(), maxZoom: FIT_MAX_ZOOM }), REFIT_MS);
+    }
   };
 
   return (
-    <div className="trip-map">
-      <div ref={containerRef} className="trip-map-canvas" />
+    <div ref={frameRef} className="trip-map">
+      <div
+        ref={containerRef}
+        className="trip-map-canvas"
+        style={revealed ? { right: insets?.right || 0, bottom: insets?.bottom || 0 } : undefined}
+      />
       <div className="map-controls" role="group" aria-label="Map zoom">
         <button type="button" onClick={() => zoomBy(1)} aria-label="Zoom in">+</button>
         <button type="button" onClick={() => zoomBy(-1)} aria-label="Zoom out">−</button>
@@ -298,20 +399,27 @@ export default function TripMap({
       {!failed && loaded && !stops.length && (
         <div className="map-notice">This plan has no mapped places yet — ask Roam to refine it and they’ll appear here.</div>
       )}
-      <div className="map-legend">
+      <div ref={legendRef} className="map-legend">
         {legend && (
-          <div className="map-legend-route">
-            <span className="legend-icon" aria-hidden="true">{legend.walking ? "🚶" : "🚗"}</span>
-            <span className="legend-line" aria-hidden="true" />
-            <div>
-              <strong>{legend.label}</strong>
-              <small>{legend.detail}</small>
-            </div>
-          </div>
+          <>
+            <p className="legend-title">{legend.title}</p>
+            <ul className="legend-modes">
+              {legend.rows.map(({ mode, detail }) => {
+                const Icon = MODE_ICONS[mode];
+                return (
+                  <li key={mode} style={{ "--mode": MODE_STYLES[mode].color }}>
+                    <span className="legend-mode-icon"><Icon /></span>
+                    <span className="legend-mode-label">{MODE_STYLES[mode].label}</span>
+                    <LegendSwatch mode={mode} />
+                    <span className="legend-mode-detail">{detail}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
         <p className="map-credit">
-          <a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a>{" "}
-          © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> · Routes{" "}
+          Routes © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors via{" "}
           <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noreferrer">FOSSGIS</a> · Places and routes are AI suggestions
         </p>
       </div>

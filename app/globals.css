@@ -213,23 +213,25 @@ a.recent-open, a.trip-card { color: inherit; text-decoration: none; }
 .map-layer { position: absolute; inset: 0; z-index: 1; opacity: 0; transition: opacity 0.6s ease; }
 .map-layer.is-visible { opacity: 1; }
 .trip-map, .trip-map-canvas { position: absolute; inset: 0; }
-.trip-map-canvas { background: #f3f1ec; }
+/* Shrinks in step with the itinerary panel's slide-in so Google's logo and terms stay uncovered. */
+.trip-map-canvas { background: #f3f1ec; transition: right 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) 0.45s, bottom 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) 0.45s; }
 .map-controls { position: absolute; top: 24px; left: 24px; z-index: 2; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-sm); overflow: hidden; }
 .map-controls button { width: 42px; height: 42px; border: 0; border-bottom: 1px solid var(--line); background: none; font-size: 22px; line-height: 1; color: var(--ink); }
 .map-controls button:last-child { border-bottom: 0; font-size: 17px; }
 .map-controls button:hover { background: #f6f4f8; }
-.map-legend { position: absolute; left: 24px; bottom: 24px; z-index: 2; max-width: 360px; padding: 14px 18px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-md); }
-.map-legend-route { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-.legend-icon { font-size: 18px; }
-.legend-line { width: 34px; border-top: 2.5px dashed var(--accent); }
-.map-legend-route div { display: flex; flex-direction: column; gap: 2px; }
-.map-legend-route strong { font-size: 14.5px; font-weight: 500; }
-.map-legend-route small { color: var(--muted); font-size: 13px; }
+.map-legend { position: absolute; left: 24px; bottom: 38px; z-index: 2; max-width: 360px; padding: 14px 18px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-md); }
+.legend-title { margin: 0 0 9px; color: var(--muted); font-size: 11.5px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; }
+.legend-modes { display: grid; gap: 7px; margin: 0 0 10px; padding: 0; list-style: none; }
+.legend-modes li { display: grid; grid-template-columns: 28px auto 30px minmax(0, 1fr); align-items: center; gap: 10px; }
+.legend-mode-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; background: color-mix(in srgb, var(--mode) 11%, #fff); color: var(--mode); }
+.legend-mode-icon svg { width: 17px; height: 17px; }
+.legend-mode-label { color: var(--ink); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.legend-swatch { display: block; }
+.legend-mode-detail { justify-self: end; color: var(--muted); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .map-credit { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
 .map-credit a { color: inherit; }
 .map-notice { position: absolute; top: 24px; left: 86px; z-index: 2; max-width: 380px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-sm); font-size: 14px; color: var(--ink-2); }
-/* No `position` here: MapLibre's .maplibregl-marker must stay absolute. */
-.map-pin { width: 30px; height: 40px; padding: 0; border: 0; background: none; transition: opacity 0.3s; }
+.map-pin { position: relative; width: 30px; height: 40px; transition: opacity 0.3s; }
 .map-pin-head { position: absolute; top: 0; left: 0; width: 30px; height: 30px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(90, 50, 170, 0.35); transition: transform 0.2s, background 0.2s; }
 .map-pin-head::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 6px solid transparent; border-top: 8px solid var(--accent); transition: border-color 0.2s; }
 .map-pin-label { position: absolute; top: calc(100% + 1px); left: 50%; transform: translateX(-50%); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2a2830; font-size: 13.5px; font-weight: 500; text-shadow: 0 0 2px #fff, 0 0 4px #fff, 0 0 6px #fff, 0 0 8px #fff; pointer-events: none; }
@@ -367,12 +369,12 @@ a.recent-open, a.trip-card { color: inherit; text-decoration: none; }
   .map-controls { top: 14px; left: 14px; }
   .map-controls button { width: 38px; height: 38px; }
   .map-legend { top: 14px; bottom: auto; left: 62px; right: 12px; max-width: none; padding: 8px 12px 6px; border-radius: 12px; }
-  .map-legend-route { gap: 8px; margin-bottom: 3px; }
-  .map-legend-route div { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
-  .map-legend-route strong { font-size: 13px; }
-  .map-legend-route small { font-size: 12px; }
-  .legend-icon { font-size: 15px; }
-  .legend-line { width: 20px; }
+  .legend-title, .legend-mode-label, .legend-swatch { display: none; }
+  .legend-modes { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 4px; }
+  .legend-modes li { display: flex; gap: 6px; }
+  .legend-mode-icon { width: 22px; height: 22px; border-radius: 7px; }
+  .legend-mode-icon svg { width: 14px; height: 14px; }
+  .legend-mode-detail { color: var(--ink-2); font-size: 12px; }
   .map-credit { font-size: 9.5px; }
   .map-notice { top: auto; bottom: calc(52% + 14px); left: 14px; right: 14px; }
 }

@@ -34,3 +34,85 @@ export const PlusIcon = () => <svg {...base}><path d="M12 5v14M5 12h14" /></svg>
 export const TrashIcon = () => <svg {...base}><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13" /></svg>;
 export const SearchIcon = () => <svg {...base}><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>;
 export const CheckIcon =() => <svg {...base}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>;
+
+// Travel modes, drawn on the same 24px grid and stroke as the icons above.
+export const WalkIcon = () => (
+  <svg {...base}>
+    <circle cx="13" cy="4.5" r="1.8" />
+    <path d="m11.4 8.2-1.7 6.1 3 2.6.9 4.6" />
+    <path d="M9.7 14.3 8 21" />
+    <path d="m11.4 8.2 3 2.7 2.8.5" />
+    <path d="m11.4 8.2-3.1 1.8-1.1 3" />
+  </svg>
+);
+export const BikeIcon = () => (
+  <svg {...base}>
+    <circle cx="5.5" cy="16.5" r="3.5" />
+    <circle cx="18.5" cy="16.5" r="3.5" />
+    <path d="M5.5 16.5h6l-2-7-4 7" />
+    <path d="M9.5 9.5H15l3.5 7" />
+    <path d="m15 9.5-3.5 7" />
+    <path d="M14 6.5h2.5" />
+    <path d="m15 9.5.3-3" />
+  </svg>
+);
+export const TramIcon = () => (
+  <svg {...base}>
+    <rect x="6" y="5.5" width="12" height="12.5" rx="3" />
+    <path d="M6 12h12" />
+    <path d="M9.5 2.5h5M12 2.5v3" />
+    <path d="m9 18-2 3M15 18l2 3" />
+    <path d="M9.5 15h.5M14 15h.5" />
+  </svg>
+);
+export const BusIcon = () => (
+  <svg {...base}>
+    <rect x="5" y="3.5" width="14" height="15" rx="2.5" />
+    <path d="M5 11h14M5 7h14" />
+    <path d="M8 18.5V21M16 18.5V21" />
+    <path d="M8 14.8h1M15 14.8h1" />
+  </svg>
+);
+export const CarIcon = () => (
+  <svg {...base}>
+    <path d="m5 11 1.6-4.2a2 2 0 0 1 1.9-1.3h7a2 2 0 0 1 1.9 1.3L19 11" />
+    <rect x="3.5" y="11" width="17" height="6" rx="2" />
+    <path d="M6 17v2M18 17v2" />
+    <path d="M7 14h1.5M15.5 14H17" />
+  </svg>
+);
+export const TrainIcon = () => (
+  <svg {...base}>
+    <path d="M6 16V7a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2Z" />
+    <path d="M6 10.5h12" />
+    <path d="M9.5 14.5h.5M14 14.5h.5" />
+    <path d="M8.5 18 6.5 21M15.5 18l2 3" />
+  </svg>
+);
+export const FerryIcon = () => (
+  <svg {...base}>
+    <path d="M3.5 13.5h17l-2 4.5H5.5Z" />
+    <path d="M7 13.5V10h8.5l1.5 3.5" />
+    <path d="M11 10V6.5h3" />
+    <path d="M3 21c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1" />
+  </svg>
+);
+export const PlaneIcon = () => (
+  <svg {...base}>
+    <path
+      transform="rotate(45 12 12)"
+      d="M12 2.5c.9 0 1.5.9 1.5 2V9l7 4v2l-7-2v4.5l2 1.5v1.5L12 19.5l-3.5 1V19l2-1.5V13l-7 2v-2l7-4V4.5c0-1.1.6-2 1.5-2Z"
+    />
+  </svg>
+);
+
+export const MODE_ICONS = {
+  walk: WalkIcon,
+  bike: BikeIcon,
+  transit: TramIcon,
+  bus: BusIcon,
+  drive: CarIcon,
+  train: TrainIcon,
+  ferry: FerryIcon,
+  flight: PlaneIcon,
+};

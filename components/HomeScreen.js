@@ -9,7 +9,7 @@ import { placeTitle, savedMeta } from "@/lib/tripDisplay";
 const RECENT_LIMIT = 5;
 
 export default function HomeScreen() {
-  const { view, loading, error, prompt, setPrompt, generateFromPrompt, cancel, clearError, retryLastRequest, savedTrips, images, deleteSaved } = useRoam();
+  const { view, loading, error, prompt, setPrompt, generateFromPrompt, cancel, clearError, retryLastRequest, savedTrips, images, deleteSaved, auth } = useRoam();
 
   return (
     <div className="home-ui" aria-hidden={view === "arriving"}>
@@ -41,6 +41,8 @@ export default function HomeScreen() {
               );
             })}
           </ul>
+        ) : auth.status === "guest" ? (
+          <p className="recent-empty"><Link href="/login">Log in</Link> to save trips and find them here.</p>
         ) : (
           <p className="recent-empty">Trips you save will be waiting here.</p>
         )}

@@ -10,41 +10,50 @@ import ItineraryView from "./ItineraryView";
 import RefineInput from "./RefineInput";
 import TripMap from "./TripMap";
 import Wordmark from "./Wordmark";
+import AccountMenu from "./AccountMenu";
 import { BookmarkIcon, CheckIcon, PlusIcon } from "./icons";
+import { useAuth } from "@/hooks/useAuth";
 import { useDayRoutes } from "@/hooks/useDayRoutes";
 import { useGenerateTrip } from "@/hooks/useGenerateTrip";
 import { usePlaceImages } from "@/hooks/usePlaceImages";
 import { useTripState } from "@/hooks/useTripState";
-import { DESTINATIONS } from "@/lib/destinations";
+import { DESTINATIONS, FLIGHT_ROUTES } from "@/lib/destinations";
 import { distanceKm, getTripCenter, getTripStops } from "@/lib/geo";
 import { dayCount, destinationLabel, placeTitle } from "@/lib/tripDisplay";
+import { deleteTrip, importLegacyTrips, listTrips, saveTrip } from "@/lib/tripStore";
 
-const STORAGE_KEY = "tripplanner_saved_trips";
 const MAP_READY_TIMEOUT_MS = 3500;
 const DESKTOP_MIN_WIDTH = 900;
 const LABEL_CLASH_KM = 1200;
 
-function loadSavedTrips() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed.filter((item) => item?.data?.stops) : [];
-  } catch {
-    return [];
-  }
-}
+// A guest's "Save trip" parks the trip here while they sign in (it survives the Google redirect).
+const PENDING_KEY = "roam_pending_trip";
+const PENDING_TTL_MS = 30 * 60 * 1000;
 
-function saveTripToStorage(trip) {
+function readPendingTrip() {
   try {
-    const all = loadSavedTrips();
-    const existing = all.find((item) => item.data?.tripId === trip.tripId);
-    const others = all.filter((item) => item !== existing);
-    const entry = { id: existing?.id ?? Date.now(), title: trip.tripTitle, savedAt: new Date().toISOString(), data: trip };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([entry, ...others].slice(0, 10)));
-    return entry;
+    const pending = JSON.parse(sessionStorage.getItem(PENDING_KEY) || "null");
+    return pending?.trip?.stops && Date.now() - pending.at < PENDING_TTL_MS ? pending.trip : null;
   } catch {
     return null;
   }
 }
+
+function writePendingTrip(trip) {
+  try {
+    if (trip) sessionStorage.setItem(PENDING_KEY, JSON.stringify({ at: Date.now(), trip }));
+    else sessionStorage.removeItem(PENDING_KEY);
+  } catch { }
+}
+
+const AUTH_SCREENS = { "/login": "login", "/signup": "signup", "/reset-password": "login", "/auth/callback": "login" };
+
+/** Only same-site, non-auth paths, so `?next=` can't bounce people elsewhere or in circles. */
+export const safeNext = (next) =>
+  typeof next === "string" && /^\/(?![/\\])/.test(next) && !AUTH_SCREENS[next.split(/[?#]/)[0]] ? next : "/";
+
+const screenFor = (pathname) => (pathname === "/trips" ? "trips" : AUTH_SCREENS[pathname] || "home");
+export const isAuthScreen = (screen) => screen === "login" || screen === "signup";
 
 export const tripHref = (saved) => `/trips/${saved.id}`;
 const TRIP_ROUTE = /^\/trips\/([^/]+)$/;
@@ -85,6 +94,18 @@ function tripMarkers(savedTrips) {
   return markers;
 }
 
+/** Flight paths linking saved destinations in the order they were saved, oldest first. */
+function tripRoutes(markers) {
+  const ordered = [...markers].reverse();
+  const routes = [];
+  for (let i = 1; i < ordered.length; i++) {
+    const [from, to] = [ordered[i - 1], ordered[i]];
+    if (distanceKm(from, to) < 50) continue;
+    routes.push({ from: { lat: from.latitude, lon: from.longitude }, to: { lat: to.latitude, lon: to.longitude } });
+  }
+  return routes;
+}
+
 const RoamContext = createContext(null);
 export const useRoam = () => useContext(RoamContext);
 
@@ -92,18 +113,24 @@ export default function RoamShell({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const routeTripId = pathname.match(TRIP_ROUTE)?.[1] ?? null;
-  const [screen, setScreen] = useState(pathname === "/trips" ? "trips" : "home");
+  const [screen, setScreen] = useState(screenFor(pathname));
   const [screenPath, setScreenPath] = useState(pathname);
   if (pathname !== screenPath) {
     setScreenPath(pathname);
-    if (!routeTripId) setScreen(pathname === "/trips" ? "trips" : "home");
+    if (!routeTripId) setScreen(screenFor(pathname));
   }
+
+  const auth = useAuth();
+  const userId = auth.user?.$id ?? null;
 
   const { trip, setTrip, toggleActivity, deleteActivity, deleteDay, editActivity, reorderActivities, reorderDays, togglePackingItem, clearTrip } = useTripState();
   const [view, setView] = useState("globe");
   const [intro, setIntro] = useState({ phase: "splash", from: null });
   const [savedTrips, setSavedTrips] = useState([]);
-  const [savedLoaded, setSavedLoaded] = useState(false);
+  const [tripsOwner, setTripsOwner] = useState(undefined);
+  const [tripsReload, setTripsReload] = useState(0);
+  const [pendingTrip, setPendingTrip] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [openSavedId, setOpenSavedId] = useState(null);
   const [prompt, setPrompt] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
@@ -169,10 +196,7 @@ export default function RoamShell({ children }) {
   );
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setSavedTrips(loadSavedTrips());
-      setSavedLoaded(true);
-    });
+    const frame = window.requestAnimationFrame(() => setPendingTrip(readPendingTrip()));
     const arrival = arrivalRef.current;
     return () => {
       window.cancelAnimationFrame(frame);
@@ -180,6 +204,27 @@ export default function RoamShell({ children }) {
       clearTimeout(arrival.timer);
     };
   }, []);
+
+  // Saved trips belong to the signed-in account; guests have none.
+  useEffect(() => {
+    if (auth.status === "loading") return;
+    let cancelled = false;
+    const load = userId
+      ? importLegacyTrips(userId).catch(() => 0).then(listTrips)
+      : Promise.resolve([]);
+    load
+      .catch((loadError) => {
+        console.error("Couldn’t load saved trips", loadError);
+        return [];
+      })
+      .then((trips) => {
+        if (cancelled) return;
+        setSavedTrips(trips);
+        setTripsOwner(userId);
+      });
+    return () => { cancelled = true; };
+  }, [auth.status, userId, tripsReload]);
+  const savedLoaded = auth.status !== "loading" && tripsOwner === userId;
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -221,25 +266,80 @@ export default function RoamShell({ children }) {
     if (lastRequestRef.current) generate(lastRequestRef.current);
   };
 
-  const handleSave = () => {
-    if (!trip) return;
-    const entry = saveTripToStorage(trip);
-    setSaveMessage(entry ? "Saved" : "Couldn’t save");
-    setSavedTrips(loadSavedTrips());
-    if (entry && String(entry.id) !== routeTripId) {
-      setOpenSavedId(String(entry.id));
-      router.replace(tripHref(entry));
-    }
+  const flashSaveMessage = (message) => {
+    setSaveMessage(message);
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => setSaveMessage(""), 2200);
   };
 
-  const deleteSaved = (id) => {
-    const remaining = loadSavedTrips().filter((item) => item.id !== id);
+  const rememberSaved = (entry) => setSavedTrips((list) => [entry, ...list.filter((item) => item.id !== entry.id)]);
+
+  const handleSave = async () => {
+    if (!trip || saving) return;
+    if (auth.status !== "user") {
+      writePendingTrip(trip);
+      setPendingTrip(trip);
+      closeTrip();
+      router.push("/login");
+      return;
+    }
+    setSaving(true);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
-      setSavedTrips(remaining);
-    } catch { }
+      const existing = savedTrips.find((item) => item.data?.tripId === trip.tripId);
+      const entry = await saveTrip(userId, trip, existing?.id);
+      rememberSaved(entry);
+      flashSaveMessage("Saved");
+      if (entry.id !== routeTripId) {
+        setOpenSavedId(entry.id);
+        router.replace(tripHref(entry));
+      }
+    } catch (saveError) {
+      console.error("Couldn’t save trip", saveError);
+      flashSaveMessage("Couldn’t save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** After any sign-in: save the trip that sent them here, else go where they were headed. */
+  const completeAuth = async (account, next) => {
+    const pending = readPendingTrip();
+    writePendingTrip(null);
+    setPendingTrip(null);
+    if (pending && account) {
+      try {
+        const entry = await saveTrip(account.$id, pending);
+        rememberSaved(entry);
+        setTripsReload((n) => n + 1);
+        router.replace(tripHref(entry));
+        return;
+      } catch (saveError) {
+        console.error("Couldn’t save trip after sign-in", saveError);
+      }
+    }
+    router.replace(safeNext(next));
+  };
+
+  const resumePendingTrip = () => {
+    const pending = readPendingTrip();
+    writePendingTrip(null);
+    setPendingTrip(null);
+    router.push("/");
+    if (pending) openTrip(pending);
+  };
+
+  const deleteSaved = (id) => {
+    setSavedTrips((list) => list.filter((item) => item.id !== id));
+    deleteTrip(id).catch((deleteError) => {
+      console.error("Couldn’t delete trip", deleteError);
+      setTripsReload((n) => n + 1);
+    });
+  };
+
+  const logout = async () => {
+    if (view !== "globe") closeTrip();
+    await auth.logout();
+    if (routeTripId) router.push("/trips");
   };
 
   const closeTrip = () => {
@@ -250,7 +350,6 @@ export default function RoamShell({ children }) {
     setOpenSavedId(null);
     setPrompt("");
     setView("globe");
-    setSavedTrips(loadSavedTrips());
   };
 
   const startNewTrip = () => {
@@ -298,6 +397,8 @@ export default function RoamShell({ children }) {
 
   const savedMarkers = useMemo(() => tripMarkers(savedTrips), [savedTrips]);
   const markers = screen === "trips" ? savedMarkers : SUGGESTION_MARKERS;
+  const savedRoutes = useMemo(() => tripRoutes(savedMarkers), [savedMarkers]);
+  const routes = screen === "trips" ? savedRoutes : FLIGHT_ROUTES;
   const markerIdBySaved = useMemo(() => {
     const byName = new Map(savedMarkers.map((m) => [m.name.toLowerCase(), m.id]));
     return Object.fromEntries(
@@ -309,6 +410,8 @@ export default function RoamShell({ children }) {
     if (marker.savedId != null) {
       router.push(`/trips/${marker.savedId}`);
     } else {
+      // From the login page the trip is planned on home, where its progress shows.
+      if (isAuthScreen(screen)) router.push("/");
       generateFromPrompt(marker.prompt);
     }
   };
@@ -328,8 +431,13 @@ export default function RoamShell({ children }) {
     clearError,
     retryLastRequest,
     savedTrips,
+    savedLoaded,
     images,
     deleteSaved,
+    auth,
+    completeAuth,
+    pendingTrip,
+    resumePendingTrip,
     missingTrip: Boolean(routeTripId) && savedLoaded && !savedTrips.some((item) => String(item.id) === routeTripId),
     focusSavedTrip: (savedId) => setGlobeFocusId(savedId == null ? null : markerIdBySaved[savedId]),
   };
@@ -361,20 +469,31 @@ export default function RoamShell({ children }) {
           {view === "trip" && trip && (
             <div className="trip-header-title"><span>{trip.tripTitle}</span></div>
           )}
-          <nav className="header-nav" aria-label="Main">
-            {navLink("/", "Home")}
-            {navLink("/trips", "Trips")}
-          </nav>
+          {!isAuthScreen(screen) && (
+            <nav className="header-nav" aria-label="Main">
+              {navLink("/", "Home")}
+              {navLink("/trips", "Trips")}
+            </nav>
+          )}
           {view === "trip" && trip && (
             <div className="header-actions">
-              <button type="button" className="outline-pill" onClick={handleSave}>
-                {saveMessage ? <CheckIcon /> : <BookmarkIcon />}
-                <span>{saveMessage || "Save trip"}</span>
+              <button
+                type="button"
+                className="outline-pill"
+                onClick={handleSave}
+                disabled={saving}
+                title={auth.status === "user" ? undefined : "Log in to save this trip"}
+              >
+                {saveMessage === "Saved" ? <CheckIcon /> : <BookmarkIcon />}
+                <span>{saveMessage || (saving ? "Saving…" : "Save trip")}</span>
               </button>
               <button type="button" className="outline-pill" onClick={startNewTrip}>
                 <PlusIcon /><span>New trip</span>
               </button>
             </div>
+          )}
+          {!isAuthScreen(screen) && auth.status !== "loading" && (
+            <AccountMenu user={auth.user} onLogout={logout} onNavigate={() => { if (view !== "globe") closeTrip(); }} />
           )}
         </header>
 
@@ -399,6 +518,7 @@ export default function RoamShell({ children }) {
 
           <DestinationGlobe
             destinations={markers}
+            routes={routes}
             screen={screen}
             mode={globeMode}
             target={view === "arriving" ? center : null}

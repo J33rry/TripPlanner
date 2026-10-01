@@ -24,6 +24,9 @@ const ARRIVE_ZOOM_START_S = 0.35;
 const ARRIVE_TOTAL_S = 2.3;
 const INTRO_GROW_S = 1.35;
 const SCREEN_SPIN_DEG_PER_S = 150;
+// Entering an auth screen spins at least this far, settling back on START_VIEW so the pins face front.
+const AUTH_SPIN_MIN_DEG = 160;
+const AUTH_SPIN_S = 1.7;
 
 const ORB_AXES = [normalize([0.18, 1, 0.12]), normalize([1, 0.3, -0.25]), normalize([-0.55, 0.45, 0.7])];
 const ORB_SPEEDS = [1.6, -1.2, 2.05];
@@ -37,21 +40,37 @@ const RINGS = [
   { radius: 1.25, inclination: 76, azimuth: 38, precession: -0.8, speed: -0.16, riders: [0.36] },
   { radius: 1.11, inclination: 22, azimuth: 60, precession: 1.6, speed: 0.28, riders: [0.82] },
 ];
-const ARCS = [
-  { from: { lat: 51.5, lon: -0.13 }, to: { lat: 40.7, lon: -74 }, speed: 0.12 },
-  { from: { lat: 48.86, lon: 2.35 }, to: { lat: 27.2, lon: 78 }, speed: 0.09 },
-  { from: { lat: 27.2, lon: 78 }, to: { lat: -33.9, lon: 18.4 }, speed: 0.1 },
-];
+// Each flight: a dashed path that drifts along, plus a glowing plane-and-trail that
+// crosses it, rests, and goes again. Staggered so they don't all fly at once.
+const FLIGHT_CYCLE_S = 5.2;
+const FLIGHT_TRAVEL = 0.62; // share of the cycle spent in the air
+const FLIGHT_TAIL = 0.22; // trail length, as a share of the route
+const FLIGHT_TAIL_STEPS = 14;
+const FLIGHT_COLOR = "186, 140, 255";
+const FLIGHT_FRONT_COLOR = "206, 176, 255"; // lighter, to read against the dark globe
 
 const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const easeInCubic = (t) => t * t * t;
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
+const mod = (a, n) => ((a % n) + n) % n;
+
+const AUTH_SCREENS = new Set(["login", "signup"]);
 
 function homeLayout(width, height, screen = "home") {
-  const stacked = width < (screen === "trips" ? 900 : 760);
+  const auth = AUTH_SCREENS.has(screen);
+  const stacked = width < (screen === "home" ? 760 : 900);
+  if (stacked && auth) {
+    const r = Math.min(width * 0.3, height * 0.17);
+    return { cx: width / 2, cy: r + 36, r };
+  }
   if (stacked) {
     const r = Math.min(width * 0.36, height * 0.24);
     return { cx: width / 2, cy: r + 52, r };
+  }
+  if (auth) {
+    // The globe sits opposite the form card, above the headline.
+    const r = Math.min(height * 0.33, width * 0.2);
+    return { cx: width * (screen === "login" ? 0.71 : 0.29), cy: height * 0.4, r };
   }
   if (screen === "trips") {
     const r = Math.min(height * 0.4, width * 0.235);
@@ -70,7 +89,7 @@ function ringBasis(ring, t) {
   return { u, v };
 }
 
-export default function DestinationGlobe({ destinations, screen = "home", mode = "idle", target, hidden, intro, focusId, disabled, onSelect, onArrive }) {
+export default function DestinationGlobe({ destinations, routes = [], screen = "home", mode = "idle", target, hidden, intro, focusId, disabled, onSelect, onArrive }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const markerRefs = useRef({});
@@ -95,6 +114,15 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
   }, [destinations]);
   const focusRequest = useRef(null);
 
+  const flightsRef = useRef([]);
+  useEffect(() => {
+    flightsRef.current = routes.map((route, i) => ({
+      points: buildArc(route.from, route.to),
+      cycle: FLIGHT_CYCLE_S + (i % 4) * 0.85,
+      offset: i * 0.37,
+    }));
+  }, [routes]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
@@ -103,7 +131,6 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
 
     const land = buildLandDots();
     const ocean = buildSphereDots(OCEAN_DOTS);
-    const arcs = ARCS.map((arc) => ({ ...arc, points: buildArc(arc.from, arc.to) }));
 
     const bucketCount = 3 * ALPHA_LEVELS;
     const capacity = land.count + ocean.count;
@@ -121,6 +148,7 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       arrivedFired: false,
       screen: null,
       introGrow: null,
+      spin: null,
       last: performance.now(),
     };
 
@@ -145,6 +173,7 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       if (Math.hypot(dx, dy) > state.layout.r * 1.05) return;
       state.drag = { x: event.clientX, y: event.clientY, t: performance.now() };
       state.velocity = 0;
+      state.spin = null;
       canvas.setPointerCapture(event.pointerId);
       canvas.classList.add("is-dragging");
     };
@@ -278,7 +307,21 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
       state.clock += dt;
 
       if (live.current.screen !== state.screen) {
-        if (state.screen && !still) state.velocity = (live.current.screen === "trips" ? 1 : -1) * SCREEN_SPIN_DEG_PER_S;
+        // Spin the way the globe travels: gliding left turns the surface left, and vice versa.
+        const shift = state.screen ? homeLayout(state.width, state.height, live.current.screen).cx - homeLayout(state.width, state.height, state.screen).cx : 0;
+        const direction = -Math.sign(shift);
+        state.spin = null;
+        if (Math.abs(shift) > 1 && !still) {
+          if (AUTH_SCREENS.has(live.current.screen)) {
+            const turn = direction > 0
+              ? AUTH_SPIN_MIN_DEG + mod(START_VIEW.lon - state.lon - AUTH_SPIN_MIN_DEG, 360)
+              : -(AUTH_SPIN_MIN_DEG + mod(state.lon - START_VIEW.lon - AUTH_SPIN_MIN_DEG, 360));
+            state.spin = { start: state.clock, lon0: state.lon, lat0: state.lat, dLon: turn };
+            state.velocity = 0;
+          } else {
+            state.velocity = direction * SCREEN_SPIN_DEG_PER_S;
+          }
+        }
         state.screen = live.current.screen;
       }
 
@@ -293,6 +336,7 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
             orb0: state.orb,
           };
           state.arrivedFired = false;
+          state.spin = null;
         } else {
           state.arrival = null;
         }
@@ -351,7 +395,14 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         markerFade = 1 - state.orb;
 
         const listFocus = focusId && markers.find((m) => m.id === focusId);
-        if (focusRequest.current || listFocus) {
+        if (state.spin) {
+          const s = state.spin;
+          const p = clamp01((state.clock - s.start) / AUTH_SPIN_S);
+          const e = easeInOutCubic(p);
+          state.lon = s.lon0 + s.dLon * e;
+          state.lat = s.lat0 + (START_VIEW.lat - s.lat0) * e;
+          if (p >= 1) state.spin = null;
+        } else if (focusRequest.current || listFocus) {
           const f = focusRequest.current || listFocus;
           const kf = 1 - Math.exp(-dt * 5);
           state.lon += shortestDelta(state.lon, f.lon) * kf;
@@ -409,20 +460,79 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
         const riders = ring.riders.map((offset) => at((offset + state.clock * ring.speed * ringSpeedBoost) * Math.PI * 2));
         return { points, riders };
       });
-      const arcPaths = arcs.map((arc) => {
-        const points = arc.points.map(([wx, wy, wz]) => {
+      const flightPaths = flightsRef.current.map((flight) => {
+        const points = flight.points.map(([wx, wy, wz]) => {
           const [x, y, z] = toView(wx, wy, wz, view);
           const [sx, sy] = project(x, y, r, cx, cy);
           return [sx, sy, z];
         });
-        const progress = (((state.clock * arc.speed) % 1) + 1) % 1;
-        return { points, rider: points[Math.floor(progress * (points.length - 1))] };
+        const phase = mod(state.clock / flight.cycle + flight.offset, 1) / FLIGHT_TRAVEL;
+        return { points, head: phase <= 1 + FLIGHT_TAIL ? easeInOutCubic(clamp01(phase)) + Math.max(0, phase - 1) : null };
       });
+      // In front of the globe, or lifted past its edge.
+      const seen = ([sx, sy, z]) => z > 0 || Math.hypot(sx - cx, sy - cy) > r;
 
+      const strokeRoute = (points, alpha, onlySeen, { dashed = true, width = onlySeen ? 1.5 : 1.1 } = {}) => {
+        ctx.save();
+        if (dashed) {
+          ctx.setLineDash([4, 5]);
+          ctx.lineDashOffset = -state.clock * 10;
+        }
+        ctx.lineWidth = width;
+        ctx.strokeStyle = `rgba(${onlySeen ? FLIGHT_FRONT_COLOR : FLIGHT_COLOR}, ${alpha})`;
+        ctx.beginPath();
+        let drawing = false;
+        for (const point of points) {
+          if (onlySeen && !seen(point)) { drawing = false; continue; }
+          if (drawing) ctx.lineTo(point[0], point[1]);
+          else { ctx.moveTo(point[0], point[1]); drawing = true; }
+        }
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      const pointAt = (points, t) => {
+        const f = clamp01(t) * (points.length - 1);
+        const i = Math.min(points.length - 2, Math.floor(f));
+        const k = f - i;
+        const a = points[i];
+        const b = points[i + 1];
+        return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+      };
+
+      const drawFlight = ({ points, head }, alpha) => {
+        if (head == null) return;
+        ctx.lineCap = "round";
+        let prev = pointAt(points, head - FLIGHT_TAIL);
+        for (let step = 1; step <= FLIGHT_TAIL_STEPS; step++) {
+          const share = step / FLIGHT_TAIL_STEPS;
+          const t = head - FLIGHT_TAIL * (1 - share);
+          const next = pointAt(points, t);
+          if (t > 0 && t <= 1 && seen(prev) && seen(next)) {
+            ctx.lineWidth = 0.8 + 2 * share;
+            ctx.strokeStyle = `rgba(${FLIGHT_FRONT_COLOR}, ${alpha * share})`;
+            ctx.beginPath();
+            ctx.moveTo(prev[0], prev[1]);
+            ctx.lineTo(next[0], next[1]);
+            ctx.stroke();
+          }
+          prev = next;
+        }
+        ctx.lineCap = "butt";
+        if (head <= 1) {
+          const tip = pointAt(points, head);
+          if (seen(tip)) glowDot(tip[0], tip[1], 2.4, alpha);
+        }
+      };
+
+      // Flight paths step aside while the globe is "thinking" up a trip.
+      const flightFade = ringFade * (1 - state.orb) ** 2;
       if (ringFade > 0) {
         const lineAlpha = (0.42 + orbMix * 0.3) * ringFade;
         ringPaths.forEach(({ points }) => strokePath(points, false, lineAlpha, 1));
-        arcPaths.forEach(({ points }) => strokePath(points, false, lineAlpha * 0.9, 1));
+      }
+      if (flightFade > 0.01) {
+        flightPaths.forEach(({ points }) => strokeRoute(points, 0.42 * flightFade * 0.7, false));
       }
 
       const body = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.42, r * 0.05, cx, cy, r * 1.05);
@@ -468,9 +578,13 @@ export default function DestinationGlobe({ destinations, screen = "home", mode =
             if (inFront) glowDot(x, y, 2.2, ringFade);
           });
         });
-        arcPaths.forEach(({ points, rider }) => {
-          strokePath(points, true, lineAlpha * 0.9, 1.1);
-          if (rider[2] > 0) glowDot(rider[0], rider[1], 1.8, ringFade);
+      }
+      if (flightFade > 0.01) {
+        const flightAlpha = 0.55 * flightFade;
+        flightPaths.forEach((flight) => {
+          strokeRoute(flight.points, flightAlpha * 0.35, true, { dashed: false, width: 2.4 });
+          strokeRoute(flight.points, Math.min(1, flightAlpha * 1.4), true);
+          drawFlight(flight, flightFade);
         });
       }
 

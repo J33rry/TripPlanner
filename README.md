@@ -66,8 +66,20 @@ For a production build: `npm run build && npm start`.
 | `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` | no | a Google Cloud map ID for custom map styling — defaults to Google's `DEMO_MAP_ID` |
 | `GOOGLE_MAPS_API_KEY` | no | server key for Google Places API (New), used for [place grounding](#reliability); without it Roam plans from the model's own knowledge |
 | `PLACE_GROUNDING` | no | set to `off` to disable place grounding even when a Google key is present |
+| `NEXT_PUBLIC_APPWRITE_PROJECT_ID` | to save trips | Appwrite project for accounts (email + Google) and saved trips; without it anyone can still plan trips, but saving is off |
+| `NEXT_PUBLIC_APPWRITE_ENDPOINT` | no | defaults to `https://cloud.appwrite.io/v1`; set it to your region's endpoint (e.g. `https://fra.cloud.appwrite.io/v1`) |
+| `NEXT_PUBLIC_APPWRITE_DATABASE_ID` / `NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID` | no | where trips are stored — default `roam` / `roam_trips`; pick IDs no other app uses if the database is shared |
+| `APPWRITE_API_KEY` | setup only | server key used once by `npm run setup:appwrite`; never shipped to the browser |
 
 `GROQ_API_KEY` and `GOOGLE_MAPS_API_KEY` are only read on the server, by [`app/api/generate/route.js`](app/api/generate/route.js) and the `lib/` modules it uses. The `NEXT_PUBLIC_` values are built into the browser bundle, so use a separate browser key restricted to the **Maps JavaScript API** and your site's addresses (e.g. `http://localhost:3000/*`), and keep the server key restricted to **Places API (New)**. Never commit `.env.local`.
+
+**Accounts (Appwrite).** Anyone can plan trips; saving one asks you to log in (and saves it right after, even through the Google redirect). To turn it on:
+
+1. Create a project at [cloud.appwrite.io](https://cloud.appwrite.io) and add a **Web** platform with hostname `localhost` (plus your production domain).
+2. Under **Auth → Settings**, enable **Google**: paste a Google OAuth client ID/secret, and add the redirect URI Appwrite shows to that client in Google Cloud.
+3. Put the project ID (and endpoint) in `.env.local`, create an API key with the databases/tables/columns write scopes, then run `APPWRITE_API_KEY=… npm run setup:appwrite` to create the `roam_trips` table. Rows are private to the account that saved them.
+
+Trips saved in the browser before accounts existed are moved into the first account that logs in on that browser.
 
 Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,000 Nearby Search Pro calls), a personal project costs nothing; setting daily quota caps on both APIs in Google Cloud makes sure of it.
 
@@ -77,6 +89,7 @@ Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,00
 | `npm run build` | production build |
 | `npm start` | serve the production build |
 | `npm run lint` | run ESLint |
+| `npm run setup:appwrite` | create the Appwrite database and `roam_trips` table (idempotent; refuses to touch a table it didn't make) |
 | `npm run gen:land-mask` | regenerate `lib/landMask.js`, the globe's land-dot bitmask, from Natural Earth data |
 
 <br>

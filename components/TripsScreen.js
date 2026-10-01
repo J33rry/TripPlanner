@@ -15,17 +15,23 @@ const matches = (saved, query) => {
 };
 
 export default function TripsScreen() {
-  const { view, savedTrips, images, deleteSaved, focusSavedTrip } = useRoam();
+  const { view, savedTrips, savedLoaded, images, deleteSaved, focusSavedTrip, auth } = useRoam();
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const visible = q ? savedTrips.filter((saved) => matches(saved, q)) : savedTrips;
   const count = savedTrips.length;
+  const guest = auth.status === "guest";
+  const countLabel = !savedLoaded
+    ? "Loading your trips…"
+    : guest
+      ? "Log in to see your saved trips"
+      : count ? `${count} saved ${count === 1 ? "trip" : "trips"}` : "No saved trips yet";
 
   return (
     <div className="trips-ui" aria-hidden={view === "arriving"}>
       <section className="trips-panel" aria-labelledby="trips-title">
         <h1 id="trips-title">Your trips</h1>
-        <p className="trips-count">{count ? `${count} saved ${count === 1 ? "trip" : "trips"}` : "No saved trips yet"}</p>
+        <p className="trips-count">{countLabel}</p>
 
         {count > 0 && (
           <label className="trips-search">
@@ -35,7 +41,15 @@ export default function TripsScreen() {
           </label>
         )}
 
-        {count === 0 ? (
+        {!savedLoaded ? null : guest ? (
+          <div className="trips-empty">
+            <p>Anyone can plan a trip. Log in to save yours — they’ll appear here and on the globe, on any device.</p>
+            <div className="trips-empty-actions">
+              <Link href="/login?next=%2Ftrips" className="dark-pill">Log in</Link>
+              <Link href="/" className="ghost-pill">Plan a trip</Link>
+            </div>
+          </div>
+        ) : count === 0 ? (
           <div className="trips-empty">
             <p>Plan a trip and save it — it will appear here and on the globe.</p>
             <Link href="/" className="dark-pill">Plan a trip</Link>

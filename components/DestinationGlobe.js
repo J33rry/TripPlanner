@@ -25,8 +25,9 @@ const ARRIVE_TOTAL_S = 2.3;
 const INTRO_GROW_S = 1.35;
 const SCREEN_SPIN_DEG_PER_S = 150;
 // Entering an auth screen spins at least this far, settling back on START_VIEW so the pins face front.
+// The glide across the page shares the spin's timing, so the globe rolls as it travels.
 const AUTH_SPIN_MIN_DEG = 160;
-const AUTH_SPIN_S = 1.7;
+const AUTH_SPIN_S = 1.5;
 
 const ORB_AXES = [normalize([0.18, 1, 0.12]), normalize([1, 0.3, -0.25]), normalize([-0.55, 0.45, 0.7])];
 const ORB_SPEEDS = [1.6, -1.2, 2.05];
@@ -316,7 +317,7 @@ export default function DestinationGlobe({ destinations, routes = [], screen = "
             const turn = direction > 0
               ? AUTH_SPIN_MIN_DEG + mod(START_VIEW.lon - state.lon - AUTH_SPIN_MIN_DEG, 360)
               : -(AUTH_SPIN_MIN_DEG + mod(state.lon - START_VIEW.lon - AUTH_SPIN_MIN_DEG, 360));
-            state.spin = { start: state.clock, lon0: state.lon, lat0: state.lat, dLon: turn };
+            state.spin = { start: state.clock, lon0: state.lon, lat0: state.lat, dLon: turn, layout0: { ...state.layout } };
             state.velocity = 0;
           } else {
             state.velocity = direction * SCREEN_SPIN_DEG_PER_S;
@@ -383,12 +384,22 @@ export default function DestinationGlobe({ destinations, routes = [], screen = "
         introProgress = p;
         if (p >= 1) g.done = true;
       } else {
-        const k = 1 - Math.exp(-dt * 3.2);
-        state.layout = {
-          cx: state.layout.cx + (home.cx - state.layout.cx) * k,
-          cy: state.layout.cy + (home.cy - state.layout.cy) * k,
-          r: state.layout.r * Math.pow(home.r / state.layout.r, k),
-        };
+        const spinEase = state.spin ? easeInOutCubic(clamp01((state.clock - state.spin.start) / AUTH_SPIN_S)) : 0;
+        if (state.spin) {
+          const from = state.spin.layout0;
+          state.layout = {
+            cx: from.cx + (home.cx - from.cx) * spinEase,
+            cy: from.cy + (home.cy - from.cy) * spinEase,
+            r: from.r * Math.pow(home.r / from.r, spinEase),
+          };
+        } else {
+          const k = 1 - Math.exp(-dt * 3.2);
+          state.layout = {
+            cx: state.layout.cx + (home.cx - state.layout.cx) * k,
+            cy: state.layout.cy + (home.cy - state.layout.cy) * k,
+            r: state.layout.r * Math.pow(home.r / state.layout.r, k),
+          };
+        }
         const orbTarget = currentMode === "thinking" ? 1 : 0;
         state.orb += (orbTarget - state.orb) * (1 - Math.exp(-dt * (orbTarget ? 2.2 : 3)));
         if (Math.abs(state.orb - orbTarget) < 0.002) state.orb = orbTarget;
@@ -397,11 +408,9 @@ export default function DestinationGlobe({ destinations, routes = [], screen = "
         const listFocus = focusId && markers.find((m) => m.id === focusId);
         if (state.spin) {
           const s = state.spin;
-          const p = clamp01((state.clock - s.start) / AUTH_SPIN_S);
-          const e = easeInOutCubic(p);
-          state.lon = s.lon0 + s.dLon * e;
-          state.lat = s.lat0 + (START_VIEW.lat - s.lat0) * e;
-          if (p >= 1) state.spin = null;
+          state.lon = s.lon0 + s.dLon * spinEase;
+          state.lat = s.lat0 + (START_VIEW.lat - s.lat0) * spinEase;
+          if (spinEase >= 1) state.spin = null;
         } else if (focusRequest.current || listFocus) {
           const f = focusRequest.current || listFocus;
           const kf = 1 - Math.exp(-dt * 5);

@@ -1,6 +1,7 @@
 import { Outfit } from "next/font/google";
 import "./globals.css";
 import RoamShell from "@/components/RoamShell";
+import { THEME_SCRIPT } from "@/lib/theme";
 
 const outfit = Outfit({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-display" });
 
@@ -19,7 +20,11 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={outfit.variable}>
+    // The inline script sets data-theme before React hydrates, so React must accept the DOM's value.
+    <html lang="en" className={outfit.variable} data-theme="light" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <RoamShell>{children}</RoamShell>
       </body>

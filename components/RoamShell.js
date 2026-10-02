@@ -12,6 +12,7 @@ import TripMap from "./TripMap";
 import Wordmark from "./Wordmark";
 import AccountMenu from "./AccountMenu";
 import ShareMenu from "./ShareMenu";
+import ThemeToggle from "./ThemeToggle";
 import { BookmarkIcon, CheckIcon, EyeIcon, PlusIcon } from "./icons";
 import { useAuth } from "@/hooks/useAuth";
 import { routesFor, useDayRoutes } from "@/hooks/useDayRoutes";
@@ -566,6 +567,7 @@ export default function RoamShell({ children }) {
               </button>
             </div>
           )}
+          <ThemeToggle />
           {!isAuthScreen(screen) && auth.status !== "loading" && (
             <AccountMenu user={auth.user} onLogout={logout} onNavigate={() => { if (view !== "globe") closeTrip(); }} />
           )}

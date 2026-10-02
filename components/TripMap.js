@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
+import { useTheme } from "@/hooks/useTheme";
 import { arrivalRadius } from "@/lib/globeGeometry";
 import { cameraForPoints, centerWithPadding, easeOutCubic, flightPath, zoomForGlobeRadius } from "@/lib/mapCamera";
 import { MODE_STYLES, TRAVEL_MODES } from "@/lib/travelModes";
-import { MODE_ICONS } from "./icons";
+import { CloseIcon, ListIcon, MODE_ICONS } from "./icons";
 
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
@@ -14,6 +15,7 @@ const REFIT_MS = 1100;
 const FIT_MAX_ZOOM = 16.5;
 const STOP_ZOOM = 15.5;
 const CITY_ZOOM = 12;
+const MAP_BACKGROUND = { light: "#f3f1ec", dark: "#1d1e23" };
 
 function loadGoogleMaps() {
   // A global flag, not a module one: hot reloads re-run this module, and the
@@ -132,8 +134,15 @@ export default function TripMap({
   const markersRef = useRef(new Map());
   const animationRef = useRef(0);
   const initialCenter = useRef(center);
-  const [loaded, setLoaded] = useState(false);
+  // Google fixes a map's colour scheme when it's created, so a theme switch rebuilds it here.
+  const keptCamera = useRef(null);
+  const { theme } = useTheme();
+  // The live map instance, so pins and lines are redrawn when a theme switch rebuilds it.
+  const [loadedMap, setLoadedMap] = useState(null);
+  const loaded = loadedMap !== null;
   const [failed, setFailed] = useState(!API_KEY);
+  // On narrow screens the key folds into a button; wider screens always show it.
+  const [legendOpen, setLegendOpen] = useState(false);
   const hasRevealed = useRef(false);
   const lastFitKey = useRef("");
 
@@ -166,17 +175,18 @@ export default function TripMap({
         // Start exactly where the globe's arrival dive ends: same centre, same scale.
         const { width, height } = frameRef.current.getBoundingClientRect();
         const start = initialCenter.current;
+        const kept = keptCamera.current;
         const map = new maps.Map(containerRef.current, {
-          center: start || { lat: 20, lng: 0 },
-          zoom: start ? zoomForGlobeRadius(arrivalRadius(width, height), start.lat) : 2,
+          center: kept?.center || start || { lat: 20, lng: 0 },
+          zoom: kept?.zoom ?? (start ? zoomForGlobeRadius(arrivalRadius(width, height), start.lat) : 2),
           mapId: MAP_ID,
           renderingType: maps.RenderingType.VECTOR,
-          colorScheme: "LIGHT",
+          colorScheme: theme === "dark" ? "DARK" : "LIGHT",
           isFractionalZoomEnabled: true,
           disableDefaultUI: true,
           clickableIcons: false,
           gestureHandling: "greedy",
-          backgroundColor: "#f3f1ec",
+          backgroundColor: MAP_BACKGROUND[theme],
         });
         mapRef.current = map;
 
@@ -188,7 +198,7 @@ export default function TripMap({
           live.current.onReady?.();
         });
         listeners.push(ready);
-        setLoaded(true);
+        setLoadedMap(map);
       })
       .catch((err) => {
         console.error("Could not load the map:", err);
@@ -203,9 +213,25 @@ export default function TripMap({
       listeners.forEach((listener) => listener.remove());
       markers.forEach((marker) => { marker.map = null; });
       markers.clear();
+      const map = mapRef.current;
+      if (map) keptCamera.current = { center: map.getCenter().toJSON(), zoom: map.getZoom() };
       mapRef.current = null;
+      setLoadedMap(null);
     };
-  }, []);
+  }, [theme]);
+
+  useEffect(() => {
+    if (!legendOpen) return;
+    const close = (event) => {
+      if (event.type === "keydown" ? event.key === "Escape" : !legendRef.current?.contains(event.target)) setLegendOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [legendOpen]);
 
   // The visible map area once the itinerary panel is in place. The canvas
   // shrinks with the panel's slide-in, so Google's logo and terms stay visible.
@@ -217,11 +243,11 @@ export default function TripMap({
   const getPadding = useCallback(() => {
     const { width, height } = finalSize();
     const compact = width + (insets?.right || 0) < 900;
-    // Keep stops clear of the legend: it sits at the top on narrow screens and
-    // bottom-left otherwise, and grows with the number of travel modes shown.
+    // Keep stops clear of the legend: bottom-left on wide screens, where it grows with the
+    // number of travel modes shown; folded into a small button at the top otherwise.
     const legendHeight = legendRef.current?.offsetHeight || 0;
     const padding = {
-      top: compact ? Math.max(84, legendHeight + 64) : 96, // pins rise ~40px above their point
+      top: compact ? 84 : 96, // pins rise ~40px above their point
       left: compact ? 28 : 72,
       right: compact ? 28 : 64,
       bottom: compact ? 28 : Math.max(110, legendHeight + 60),
@@ -256,9 +282,9 @@ export default function TripMap({
   });
 
   useEffect(() => {
-    const map = mapRef.current;
+    const map = loadedMap;
     const lib = libRef.current;
-    if (!loaded || !map || !lib) return;
+    if (!map || !lib) return;
     const lines = [];
     for (const segment of dayRoutes) {
       const path = (segment.route?.geometry?.coordinates || segment.coordinates).map(toLatLng);
@@ -268,12 +294,12 @@ export default function TripMap({
       }
     }
     return () => lines.forEach((line) => line.setMap(null));
-  }, [loaded, dayRoutes, activeDayId]);
+  }, [loadedMap, dayRoutes, activeDayId]);
 
   useEffect(() => {
-    const map = mapRef.current;
+    const map = loadedMap;
     const lib = libRef.current;
-    if (!loaded || !map || !lib) return;
+    if (!map || !lib) return;
     const markers = markersRef.current;
     for (const stop of stops) {
       const el = document.createElement("div");
@@ -300,7 +326,7 @@ export default function TripMap({
       markers.forEach((marker) => { marker.map = null; });
       markers.clear();
     };
-  }, [loaded, stops]);
+  }, [loadedMap, stops]);
 
   useEffect(() => {
     markersRef.current.forEach((marker, id) => {
@@ -310,7 +336,7 @@ export default function TripMap({
       el.classList.toggle("is-dimmed", Boolean(activeDayId) && el.dataset.dayId !== activeDayId);
       marker.zIndex = emphasised ? 10 : null;
     });
-  }, [hoveredStopId, selectedStopId, activeDayId, stops, loaded]);
+  }, [hoveredStopId, selectedStopId, activeDayId, stops, loadedMap]);
 
   useEffect(() => {
     if (!loaded || !mapRef.current || !revealed) return;
@@ -399,35 +425,47 @@ export default function TripMap({
       {!failed && loaded && !stops.length && (
         <div className="map-notice">This plan has no mapped places yet — ask Roam to refine it and they’ll appear here.</div>
       )}
-      <div ref={legendRef} className="map-legend">
-        {legend && (
-          <>
-            <p className="legend-title">{legend.title}</p>
-            <ul className="legend-modes">
-              {legend.rows.map(({ mode, detail }) => {
-                const Icon = MODE_ICONS[mode];
-                return (
-                  <li key={mode} style={{ "--mode": MODE_STYLES[mode].color }}>
-                    <span className="legend-mode-icon"><Icon /></span>
-                    <span className="legend-mode-label">{MODE_STYLES[mode].label}</span>
-                    <LegendSwatch mode={mode} />
-                    <span className="legend-mode-detail">{detail}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-        <p className="map-credit">
-          {/* Google routes are covered by the map's own attribution; older or fallback routes come from OSM. */}
-          {dayRoutes.some((segment) => segment.route && segment.route.source !== "google") && (
+      <div ref={legendRef} className={`map-legend${legendOpen ? " is-open" : ""}`}>
+        <button
+          type="button"
+          className="legend-toggle"
+          aria-expanded={legendOpen}
+          aria-controls="map-legend-body"
+          aria-label={legendOpen ? "Hide map key" : "Show map key"}
+          onClick={() => setLegendOpen((open) => !open)}
+        >
+          {legendOpen ? <CloseIcon /> : <ListIcon />}
+        </button>
+        <div className="legend-body" id="map-legend-body">
+          {legend && (
             <>
-              Routes © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors via{" "}
-              <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noreferrer">FOSSGIS</a> ·{" "}
+              <p className="legend-title">{legend.title}</p>
+              <ul className="legend-modes">
+                {legend.rows.map(({ mode, detail }) => {
+                  const Icon = MODE_ICONS[mode];
+                  return (
+                    <li key={mode} style={{ "--mode": MODE_STYLES[mode].color }}>
+                      <span className="legend-mode-icon"><Icon /></span>
+                      <span className="legend-mode-label">{MODE_STYLES[mode].label}</span>
+                      <LegendSwatch mode={mode} />
+                      <span className="legend-mode-detail">{detail}</span>
+                    </li>
+                  );
+                })}
+              </ul>
             </>
           )}
-          Places and routes are AI suggestions
-        </p>
+          <p className="map-credit">
+            {/* Google routes are covered by the map's own attribution; older or fallback routes come from OSM. */}
+            {dayRoutes.some((segment) => segment.route && segment.route.source !== "google") && (
+              <>
+                Routes © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors via{" "}
+                <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noreferrer">FOSSGIS</a> ·{" "}
+              </>
+            )}
+            Places and routes are AI suggestions
+          </p>
+        </div>
       </div>
     </div>
   );

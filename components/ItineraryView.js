@@ -21,6 +21,7 @@ import ErrorBoundary from "./ErrorBoundary";
 
 export default function ItineraryView({
   trip,
+  readOnly = false,
   images,
   stopNumbers,
   activeDayId,
@@ -63,19 +64,20 @@ export default function ItineraryView({
 
   return (
     <ErrorBoundary>
-      <div className="itinerary">
+      <div className={`itinerary ${readOnly ? "is-readonly" : ""}`}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={trip.stops.map((s) => s.id)} strategy={verticalListSortingStrategy}>
             {trip.stops.map((stop) => (
               <DayCard
                 key={stop.id}
                 stop={stop}
+                readOnly={readOnly}
                 images={images}
                 stopNumbers={stopNumbers}
                 active={activeDayId === stop.id}
                 hoveredStopId={hoveredStopId}
                 selectedStopId={selectedStopId}
-                canDelete={trip.stops.length > 1}
+                canDelete={!readOnly && trip.stops.length > 1}
                 onSelectDay={onSelectDay}
                 onHoverStop={onHoverStop}
                 onSelectStop={onSelectStop}
@@ -88,7 +90,7 @@ export default function ItineraryView({
           </SortableContext>
         </DndContext>
 
-        <PackingList items={trip.packingList} onToggle={onTogglePackingItem} />
+        <PackingList items={trip.packingList} onToggle={readOnly ? null : onTogglePackingItem} />
         <TripTips tips={trip.tips} />
       </div>
     </ErrorBoundary>

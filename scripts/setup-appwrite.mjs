@@ -4,7 +4,7 @@
 //
 // Reads NEXT_PUBLIC_APPWRITE_* from .env.local / .env when present.
 import { existsSync } from "node:fs";
-import { Client, Permission, Role, TablesDB } from "node-appwrite";
+import { Client, Permission, Role, TablesDB, TablesDBIndexType } from "node-appwrite";
 
 for (const file of [".env.local", ".env"]) {
   if (existsSync(file)) process.loadEnvFile(file);
@@ -40,7 +40,7 @@ await ensure(`table "${tableId}"`, () =>
 );
 // The database may be shared with other apps; never add columns to a table Roam didn't make.
 const { columns } = await tables.getTable({ databaseId, tableId });
-const foreign = columns.map((column) => column.key).filter((key) => !["title", "data", "routes"].includes(key));
+const foreign = columns.map((column) => column.key).filter((key) => !["title", "data", "routes", "shareId"].includes(key));
 if (foreign.length) {
   console.error(`✗ table "${tableId}" already exists with other columns (${foreign.join(", ")}) — it belongs to something else.`);
   console.error("  Set NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID to an unused ID and run this again.");
@@ -50,5 +50,17 @@ await ensure("column title", () => tables.createVarcharColumn({ databaseId, tabl
 await ensure("column data", () => tables.createLongtextColumn({ databaseId, tableId, key: "data", required: true }));
 // Map routes fetched for the trip, so reopening it doesn't depend on the routing service.
 await ensure("column routes", () => tables.createLongtextColumn({ databaseId, tableId, key: "routes", required: false }));
+// A trip's view-only link (/share/<shareId>); empty while the trip isn't shared.
+await ensure("column shareId", () => tables.createVarcharColumn({ databaseId, tableId, key: "shareId", size: 64, required: false }));
+// A new column is usable only once Appwrite finishes building it.
+for (let tries = 0; ; tries++) {
+  const column = await tables.getColumn({ databaseId, tableId, key: "shareId" });
+  if (column.status === "available") break;
+  if (column.status === "failed" || tries >= 30) throw new Error(`column shareId is ${column.status}`);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+}
+await ensure("index shareId", () =>
+  tables.createIndex({ databaseId, tableId, key: "shareId", type: TablesDBIndexType.Key, columns: ["shareId"] })
+);
 
 console.log("Appwrite is ready for Roam.");

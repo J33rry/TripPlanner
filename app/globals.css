@@ -40,7 +40,7 @@ svg { flex-shrink: 0; }
 .dark-pill.small { height: 34px; padding: 0 14px; font-size: 13px; }
 .ghost-pill { height: 34px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); font-size: 13px; }
 .ghost-pill:hover { background: #f6f4f8; }
-.outline-pill { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); font-size: 15px; transition: background 0.2s, border-color 0.2s; }
+.outline-pill { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); font-size: 15px; white-space: nowrap; transition: background 0.2s, border-color 0.2s; }
 .outline-pill:hover { background: #f7f5f9; border-color: #cbc5d1; }
 .icon-button { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-2); transition: background 0.15s, color 0.15s; }
 .icon-button:hover { background: #f3f0f6; color: var(--ink); }
@@ -102,6 +102,21 @@ svg { flex-shrink: 0; }
 .nav-link.is-active { color: var(--ink); }
 .nav-link.is-active::after { content: ""; position: absolute; left: -2px; right: -2px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: #a979e8; }
 .header-actions { display: flex; gap: 10px; padding-left: 22px; border-left: 1px solid var(--line); }
+.view-only-chip { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 15px; white-space: nowrap; }
+
+/* ── Sharing ─────────────────────────────────────────────────────────────── */
+.share { position: relative; display: flex; }
+.share-menu { position: absolute; top: calc(100% + 14px); right: 0; z-index: 30; width: min(380px, calc(100vw - 32px)); padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-lg); animation: card-in 0.15s ease both; }
+.share-menu h2 { margin: 0 0 6px; font-size: 17px; font-weight: 500; }
+.share-menu p { margin: 0 0 14px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
+.share-link { display: flex; gap: 8px; }
+.share-link input { flex: 1; min-width: 0; height: 34px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: #f8f7f9; color: var(--ink-2); font-size: 13px; text-overflow: ellipsis; }
+.share-link .dark-pill { gap: 6px; }
+.share-link .dark-pill svg { width: 15px; height: 15px; }
+.share-stop { margin-top: 12px; padding: 4px 0; border: 0; background: none; color: var(--rose); font-size: 13.5px; }
+.share-stop:hover:not(:disabled) { text-decoration: underline; }
+.share-stop:disabled { opacity: 0.6; }
+.share-menu .share-error { margin: 12px 0 0; color: var(--rose); font-size: 13.5px; }
 .roam-stage { position: relative; flex: 1; min-height: 0; }
 
 /* ── Globe ───────────────────────────────────────────────────────────────── */
@@ -415,6 +430,11 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
 .packing-list button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 6px; border: 0; border-radius: 8px; background: none; font-size: 14px; text-align: left; }
 .packing-list button:hover { background: #f7f5f9; }
 .packing-list button.is-checked { color: var(--muted); text-decoration: line-through; }
+.packing-item { display: flex; align-items: center; gap: 10px; padding: 7px 6px; font-size: 14px; }
+.packing-item.is-checked { color: var(--muted); text-decoration: line-through; }
+.itinerary.is-readonly .day-header { padding-left: 14px; }
+.itinerary.is-readonly .activity-row { padding-left: 10px; }
+.itinerary.is-readonly .activity-row + .activity-row::before { left: 10px; }
 .checkbox { flex: 0 0 18px; height: 18px; display: grid; place-items: center; border: 1.5px solid var(--line-strong); border-radius: 5px; }
 .is-checked .checkbox { border-color: var(--accent); background: var(--accent); color: #fff; }
 .checkbox svg { width: 13px; height: 13px; }
@@ -430,6 +450,8 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
 .refine-bar input::placeholder { color: #8d8a93; }
 .refine-send { display: grid; place-items: center; width: 48px; height: 48px; border: 0; border-radius: 50%; background: var(--dark); color: #fff; }
 .refine-send:disabled { opacity: 0.35; }
+.view-only-note { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 14px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); font-size: 14px; text-align: center; }
+.view-only-note svg { color: var(--accent); }
 .panel-disclaimer { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; text-align: center; }
 
 @keyframes fade-in { from { opacity: 0; } }
@@ -449,6 +471,7 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
   .roam-brand { font-size: 30px; }
   .trip-header-title { padding-left: 14px; font-size: 15px; }
   .outline-pill { height: 38px; padding: 0 12px; font-size: 14px; }
+  .view-only-chip { height: 38px; padding: 0 12px; font-size: 14px; }
   .header-nav { gap: 18px; }
   .nav-link { font-size: 15px; }
   .header-actions { gap: 6px; padding-left: 12px; }
@@ -513,7 +536,7 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
   .marker-card-image { flex-basis: 72px; height: 100px; }
   .marker-card-body h3 { font-size: 17px; }
   .marker-card-body p { font-size: 13.5px; }
-  .outline-pill span { display: none; }
+  .outline-pill span, .view-only-chip span { display: none; }
   .error-banner { flex-direction: column; gap: 10px; }
   .activity-thumb { flex-basis: 68px; height: 46px; }
   .packing-list { grid-template-columns: 1fr; }
@@ -524,7 +547,7 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
   .trip-header-title { display: none; }
   .header-nav { gap: 14px; }
   /* "Home" already closes the trip and returns to the prompt. */
-  .header-actions .outline-pill + .outline-pill { display: none; }
+  .header-actions .header-new-trip { display: none; }
   .account-login span:last-child { display: none; }
   .auth-card h1 { font-size: 30px; }
   .auth-sub { font-size: 16px; margin-bottom: 20px; }

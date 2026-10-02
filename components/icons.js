@@ -46,6 +46,10 @@ export const EyeOffIcon = () => (
   </svg>
 );
 export const MapIcon = () => <svg {...base}><path d="m3.5 6.5 5.5-2.5 6 2.5 5.5-2.5v13.5L15 20l-6-2.5-5.5 2.5Z" /><path d="M9 4v13.5M15 6.5V20" /></svg>;
+export const LinkIcon = () => (
+  <svg {...base}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>
+);
+export const CopyIcon = () => <svg {...base}><rect x="8.5" y="8.5" width="11" height="11" rx="2.5" /><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" /></svg>;
 export const LogoutIcon = () => <svg {...base}><path d="M14 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H14" /><path d="M10 12h10M16.5 8.5 20 12l-3.5 3.5" /></svg>;
 export const GoogleIcon = () => (
   <svg width="22" height="22" viewBox="0 0 48 48" aria-hidden="true" focusable="false">

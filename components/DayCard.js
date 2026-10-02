@@ -8,6 +8,7 @@ import { GripIcon, ChevronIcon, CloseIcon } from "./icons";
 
 export default function DayCard({
   stop,
+  readOnly,
   images,
   stopNumbers,
   active,
@@ -23,7 +24,7 @@ export default function DayCard({
   onDeleteDay,
 }) {
   const [expanded, setExpanded] = useState(true);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: stop.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: stop.id, disabled: readOnly });
   const completed = stop.activities.filter((a) => a.completed).length;
 
   return (
@@ -34,9 +35,11 @@ export default function DayCard({
       aria-label={`Day ${stop.day}${stop.theme ? `: ${stop.theme}` : ""}`}
     >
       <header className="day-header">
-        <button type="button" className="drag-handle day-drag" {...attributes} {...listeners} aria-label={`Reorder day ${stop.day}`}>
-          <GripIcon />
-        </button>
+        {!readOnly && (
+          <button type="button" className="drag-handle day-drag" {...attributes} {...listeners} aria-label={`Reorder day ${stop.day}`}>
+            <GripIcon />
+          </button>
+        )}
         <button
           type="button"
           className="day-title"
@@ -75,6 +78,7 @@ export default function DayCard({
                 key={activity.id}
                 activity={activity}
                 dayId={stop.id}
+                readOnly={readOnly}
                 image={images[activity.location]}
                 number={stopNumbers[activity.id]}
                 hovered={hoveredStopId === activity.id}
@@ -87,7 +91,9 @@ export default function DayCard({
               />
             ))}
           </SortableContext>
-          {stop.activities.length === 0 && <p className="day-empty">Nothing planned yet. Delete this day or ask Roam to fill it.</p>}
+          {stop.activities.length === 0 && (
+            <p className="day-empty">{readOnly ? "Nothing planned for this day." : "Nothing planned yet. Delete this day or ask Roam to fill it."}</p>
+          )}
         </div>
       )}
     </section>

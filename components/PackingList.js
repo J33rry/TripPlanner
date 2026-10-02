@@ -15,10 +15,18 @@ export default function PackingList({ items, onToggle }) {
       <ul className="packing-list">
         {items.map((item, index) => (
           <li key={`${item.text}-${index}`}>
-            <button type="button" className={item.checked ? "is-checked" : ""} onClick={() => onToggle(index)} aria-pressed={item.checked}>
-              <span className="checkbox" aria-hidden="true">{item.checked && <CheckIcon />}</span>
-              {item.text}
-            </button>
+            {onToggle ? (
+              <button type="button" className={item.checked ? "is-checked" : ""} onClick={() => onToggle(index)} aria-pressed={item.checked}>
+                <span className="checkbox" aria-hidden="true">{item.checked && <CheckIcon />}</span>
+                {item.text}
+              </button>
+            ) : (
+              <span className={`packing-item ${item.checked ? "is-checked" : ""}`}>
+                <span className="checkbox" aria-hidden="true">{item.checked && <CheckIcon />}</span>
+                {item.text}
+                {item.checked && <span className="sr-only"> (packed)</span>}
+              </span>
+            )}
           </li>
         ))}
       </ul>

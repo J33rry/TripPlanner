@@ -11,7 +11,8 @@ import RefineInput from "./RefineInput";
 import TripMap from "./TripMap";
 import Wordmark from "./Wordmark";
 import AccountMenu from "./AccountMenu";
-import { BookmarkIcon, CheckIcon, PlusIcon } from "./icons";
+import ShareMenu from "./ShareMenu";
+import { BookmarkIcon, CheckIcon, EyeIcon, PlusIcon } from "./icons";
 import { useAuth } from "@/hooks/useAuth";
 import { routesFor, useDayRoutes } from "@/hooks/useDayRoutes";
 import { useGenerateTrip } from "@/hooks/useGenerateTrip";
@@ -20,7 +21,7 @@ import { useTripState } from "@/hooks/useTripState";
 import { DESTINATIONS, FLIGHT_ROUTES } from "@/lib/destinations";
 import { distanceKm, getTripCenter, getTripStops } from "@/lib/geo";
 import { dayCount, destinationLabel, placeTitle } from "@/lib/tripDisplay";
-import { deleteTrip, importLegacyTrips, listTrips, saveTrip, saveTripRoutes } from "@/lib/tripStore";
+import { deleteTrip, importLegacyTrips, listTrips, saveTrip, saveTripRoutes, shareTrip, unshareTrip } from "@/lib/tripStore";
 
 const MAP_READY_TIMEOUT_MS = 3500;
 const DESKTOP_MIN_WIDTH = 900;
@@ -57,6 +58,7 @@ export const isAuthScreen = (screen) => screen === "login" || screen === "signup
 
 export const tripHref = (saved) => `/trips/${saved.id}`;
 const TRIP_ROUTE = /^\/trips\/([^/]+)$/;
+const SHARE_ROUTE = /^\/share\/([^/]+)$/;
 
 const SUGGESTION_MARKERS = DESTINATIONS.map((d) => ({
   ...d,
@@ -113,11 +115,15 @@ export default function RoamShell({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const routeTripId = pathname.match(TRIP_ROUTE)?.[1] ?? null;
+  const routeShareId = pathname.match(SHARE_ROUTE)?.[1] ?? null;
   const [screen, setScreen] = useState(screenFor(pathname));
   const [screenPath, setScreenPath] = useState(pathname);
+  // A shared trip the viewer closed stays closed until they navigate (closing runs before the URL changes).
+  const [closedShareId, setClosedShareId] = useState(null);
   if (pathname !== screenPath) {
     setScreenPath(pathname);
-    if (!routeTripId) setScreen(screenFor(pathname));
+    setClosedShareId(null);
+    if (!routeTripId && !routeShareId) setScreen(screenFor(pathname));
   }
 
   const auth = useAuth();
@@ -132,6 +138,10 @@ export default function RoamShell({ children }) {
   const [pendingTrip, setPendingTrip] = useState(null);
   const [saving, setSaving] = useState(false);
   const [openSavedId, setOpenSavedId] = useState(null);
+  // A trip someone shared: the /share page loads it, and it opens view-only.
+  const [sharedTrip, setSharedTrip] = useState(null);
+  const [openShareId, setOpenShareId] = useState(null);
+  const viewOnly = openShareId != null;
   const [prompt, setPrompt] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [activeDayId, setActiveDayId] = useState(null);
@@ -159,9 +169,10 @@ export default function RoamShell({ children }) {
     }
   }, []);
 
-  const openTrip = useCallback((data, savedId = null) => {
+  const openTrip = useCallback((data, savedId = null, shareId = null) => {
     clearTimeout(arrivalRef.current.timer);
     setOpenSavedId(savedId);
+    setOpenShareId(shareId);
     arrivalRef.current = { globe: false, map: false, timer: null };
     setTrip(data);
     setActiveDayId(null);
@@ -274,31 +285,51 @@ export default function RoamShell({ children }) {
 
   const rememberSaved = (entry) => setSavedTrips((list) => [entry, ...list.filter((item) => item.id !== entry.id)]);
 
-  const handleSave = async () => {
-    if (!trip || saving) return;
+  /** Saves the open trip and resolves to its saved entry; a guest is sent to log in first (null). */
+  const persistTrip = async () => {
     if (auth.status !== "user") {
       writePendingTrip(trip);
       setPendingTrip(trip);
       closeTrip();
       router.push("/login");
-      return;
+      return null;
     }
     setSaving(true);
     try {
       const existing = savedTrips.find((item) => item.data?.tripId === trip.tripId);
       const entry = await saveTrip(userId, trip, existing?.id, routesFor(trip, existing?.routes));
       rememberSaved(entry);
-      flashSaveMessage("Saved");
       if (entry.id !== routeTripId) {
         setOpenSavedId(entry.id);
         router.replace(tripHref(entry));
       }
-    } catch (saveError) {
-      console.error("Couldn’t save trip", saveError);
-      flashSaveMessage("Couldn’t save");
+      return entry;
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    if (!trip || saving) return;
+    try {
+      if (await persistTrip()) flashSaveMessage("Saved");
+    } catch (saveError) {
+      console.error("Couldn’t save trip", saveError);
+      flashSaveMessage("Couldn’t save");
+    }
+  };
+
+  /** Shares what's on screen: saves it, then makes sure it has a link. */
+  const handleShare = async () => {
+    const entry = await persistTrip();
+    if (!entry) return null;
+    const shared = entry.shareId ? entry : await shareTrip(entry.id);
+    rememberSaved(shared);
+    return shared.shareId;
+  };
+
+  const handleStopSharing = async () => {
+    if (openSavedId != null) rememberSaved(await unshareTrip(openSavedId));
   };
 
   /** After any sign-in: save the trip that sent them here, else go where they were headed. */
@@ -337,7 +368,8 @@ export default function RoamShell({ children }) {
   };
 
   const logout = async () => {
-    if (view !== "globe") closeTrip();
+    // Shared trips don't depend on an account, so a viewer keeps looking at theirs.
+    if (view !== "globe" && !viewOnly) closeTrip();
     await auth.logout();
     if (routeTripId) router.push("/trips");
   };
@@ -348,6 +380,8 @@ export default function RoamShell({ children }) {
     clearTimeout(arrivalRef.current.timer);
     clearTrip();
     setOpenSavedId(null);
+    if (openShareId != null) setClosedShareId(openShareId);
+    setOpenShareId(null);
     setPrompt("");
     setView("globe");
   };
@@ -375,6 +409,16 @@ export default function RoamShell({ children }) {
   }, [routeTripId, savedLoaded, introDone, openSavedId, savedTrips, openTrip, cancel]);
 
   useEffect(() => {
+    if (!routeShareId) {
+      if (openShareId != null) closeTripRef.current();
+      return;
+    }
+    if (!introDone || openShareId === routeShareId || closedShareId === routeShareId || sharedTrip?.shareId !== routeShareId) return;
+    cancel();
+    openTrip(sharedTrip.data, null, routeShareId);
+  }, [routeShareId, introDone, openShareId, closedShareId, sharedTrip, openTrip, cancel]);
+
+  useEffect(() => {
     if (view === "trip" && trip) document.title = `${trip.tripTitle} — Roam`;
   }, [view, trip]);
 
@@ -389,7 +433,7 @@ export default function RoamShell({ children }) {
   const stopNumbers = useMemo(() => Object.fromEntries(stops.map((stop) => [stop.id, stop.number])), [stops]);
   const center = useMemo(() => getTripCenter(trip), [trip]);
   const openSaved = useMemo(() => savedTrips.find((item) => item.id === openSavedId) || null, [savedTrips, openSavedId]);
-  const dayRoutes = useDayRoutes(trip, openSaved?.routes);
+  const dayRoutes = useDayRoutes(trip, viewOnly ? sharedTrip?.routes : openSaved?.routes);
 
   // Legs that finish loading after the trip was saved are stored with it too,
   // once nothing is still loading. Only the saved version's legs count, so
@@ -458,6 +502,7 @@ export default function RoamShell({ children }) {
     resumePendingTrip,
     missingTrip: Boolean(routeTripId) && savedLoaded && !savedTrips.some((item) => String(item.id) === routeTripId),
     focusSavedTrip: (savedId) => setGlobeFocusId(savedId == null ? null : markerIdBySaved[savedId]),
+    showSharedTrip: setSharedTrip,
   };
 
   const navLink = (href, label) => (
@@ -493,7 +538,17 @@ export default function RoamShell({ children }) {
               {navLink("/trips", "Trips")}
             </nav>
           )}
-          {view === "trip" && trip && (
+          {view === "trip" && trip && viewOnly && (
+            <div className="header-actions">
+              <span className="view-only-chip" title="Shared with you — you can look, but not change it">
+                <EyeIcon /><span>View only</span>
+              </span>
+              <button type="button" className="outline-pill" onClick={startNewTrip}>
+                <PlusIcon /><span>Plan your own</span>
+              </button>
+            </div>
+          )}
+          {view === "trip" && trip && !viewOnly && (
             <div className="header-actions">
               <button
                 type="button"
@@ -505,7 +560,8 @@ export default function RoamShell({ children }) {
                 {saveMessage === "Saved" ? <CheckIcon /> : <BookmarkIcon />}
                 <span>{saveMessage || (saving ? "Saving…" : "Save trip")}</span>
               </button>
-              <button type="button" className="outline-pill" onClick={startNewTrip}>
+              <ShareMenu key={trip.tripId} shareId={openSaved?.shareId} onShare={handleShare} onStopSharing={handleStopSharing} />
+              <button type="button" className="outline-pill header-new-trip" onClick={startNewTrip}>
                 <PlusIcon /><span>New trip</span>
               </button>
             </div>
@@ -564,10 +620,11 @@ export default function RoamShell({ children }) {
                   </div>
                 </header>
                 {trip.summary && <p className="trip-summary">{trip.summary}</p>}
-                <ErrorBanner error={error} onRetry={retryLastRequest} onDismiss={clearError} />
+                {!viewOnly && <ErrorBanner error={error} onRetry={retryLastRequest} onDismiss={clearError} />}
                 <div className={`itinerary-wrap ${loading ? "is-refreshing" : ""}`} aria-busy={loading}>
                   <ItineraryView
                     trip={trip}
+                    readOnly={viewOnly}
                     images={images}
                     stopNumbers={stopNumbers}
                     activeDayId={activeDayId}
@@ -587,7 +644,11 @@ export default function RoamShell({ children }) {
                 </div>
               </div>
               <div className="panel-footer">
-                <RefineInput onRefine={handleRefine} loading={loading} error={error} />
+                {viewOnly ? (
+                  <p className="view-only-note"><EyeIcon /> Shared with you — view only</p>
+                ) : (
+                  <RefineInput onRefine={handleRefine} loading={loading} error={error} />
+                )}
                 <p className="panel-disclaimer">AI suggestions — check places, hours and prices before you go.</p>
               </div>
             </aside>

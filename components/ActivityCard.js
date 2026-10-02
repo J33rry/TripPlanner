@@ -16,6 +16,7 @@ const draftFrom = (activity) => ({
 export default function ActivityCard({
   activity,
   dayId,
+  readOnly,
   image,
   number,
   hovered,
@@ -32,7 +33,7 @@ export default function ActivityCard({
   const rowRef = useRef(null);
   const menuRef = useRef(null);
   const config = ACTIVITY_CONFIG[activity.type] || ACTIVITY_CONFIG.activity;
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: activity.id, disabled: editing });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: activity.id, disabled: editing || readOnly });
 
   useEffect(() => {
     if (selected) rowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -65,9 +66,11 @@ export default function ActivityCard({
       onPointerEnter={() => onHover(activity.id)}
       onPointerLeave={() => onHover(null)}
     >
-      <button type="button" className="drag-handle" {...attributes} {...listeners} aria-label={`Reorder ${activity.title}`}>
-        <GripIcon />
-      </button>
+      {!readOnly && (
+        <button type="button" className="drag-handle" {...attributes} {...listeners} aria-label={`Reorder ${activity.title}`}>
+          <GripIcon />
+        </button>
+      )}
 
       <div className={`activity-thumb type-${activity.type}`} style={image ? { backgroundImage: `url("${image}")` } : undefined}>
         {!image && <span aria-hidden="true">{config.icon}</span>}
@@ -113,7 +116,7 @@ export default function ActivityCard({
         </button>
       )}
 
-      {!editing && (
+      {!editing && !readOnly && (
         <div className="activity-actions" ref={menuRef}>
           <button type="button" className="icon-button" onClick={() => { setDraft(draftFrom(activity)); setEditing(true); }} aria-label={`Edit ${activity.title}`}>
             <PencilIcon />

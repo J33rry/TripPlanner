@@ -71,6 +71,7 @@ For a production build: `npm run build && npm start`.
 | `NEXT_PUBLIC_APPWRITE_ENDPOINT` | no | defaults to `https://cloud.appwrite.io/v1`; set it to your region's endpoint (e.g. `https://fra.cloud.appwrite.io/v1`) |
 | `NEXT_PUBLIC_APPWRITE_DATABASE_ID` / `NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID` | no | where trips are stored — default `roam` / `roam_trips`; pick IDs no other app uses if the database is shared |
 | `APPWRITE_API_KEY` | setup only | server key used once by `npm run setup:appwrite`; never shipped to the browser |
+| `APPWRITE_SHARE_API_KEY` | to open share links | server key with only the `rows.read` scope; the `/share/…` page uses it to show a shared trip to people who don't own it |
 
 `GROQ_API_KEY` and `GOOGLE_MAPS_API_KEY` are only read on the server, by [`app/api/generate/route.js`](app/api/generate/route.js) and the `lib/` modules it uses. The `NEXT_PUBLIC_` values are built into the browser bundle, so use a separate browser key restricted to the **Maps JavaScript API** and your site's addresses (e.g. `http://localhost:3000/*`), and keep the server key restricted to **Places API (New)** and **Routes API**. Never commit `.env.local`.
 
@@ -81,6 +82,8 @@ For a production build: `npm run build && npm start`.
 3. Put the project ID (and endpoint) in `.env.local`, create an API key with the databases/tables/columns write scopes, then run `APPWRITE_API_KEY=… npm run setup:appwrite` to create the `roam_trips` table. Rows are private to the account that saved them.
 
 Trips saved in the browser before accounts existed are moved into the first account that logs in on that browser. Each saved trip also stores its map routes (the `routes` column), so reopening it draws streets instantly without asking the routing service again; only legs that changed are fetched. If you created the table before this column existed, run `npm run setup:appwrite` again to add it.
+
+**Sharing.** **Share** in a trip's header saves the trip and copies a view-only link (`/share/<id>`); friends see the map and itinerary without edit controls, no account needed, and see changes the owner saves later. **Stop sharing** turns the link off, and sharing again issues a new one. The link's ID lives in the trip's `shareId` column. Rows stay private to their owner, so the share page looks the trip up on the server with `APPWRITE_SHARE_API_KEY`; making rows publicly readable would let anyone list every shared trip. Run `npm run setup:appwrite` again to add the column and its index to an existing table.
 
 Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,000 Nearby Search Pro calls), a personal project costs nothing; setting daily quota caps on both APIs in Google Cloud makes sure of it.
 

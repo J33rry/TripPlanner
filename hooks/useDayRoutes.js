@@ -75,12 +75,31 @@ export function planSegments(trip) {
   return segments;
 }
 
-export function useDayRoutes(trip) {
+/** A segment's route: fetched this session, else one saved with the trip. */
+function readyRoute(segment, savedRoutes) {
+  const entry = routeCache.get(segment.key);
+  return entry?.status === "ready" ? entry.route : savedRoutes?.[segment.key] || null;
+}
+
+/** The routes this trip's segments have so far, keyed for saving alongside it. */
+export function routesFor(trip, savedRoutes) {
+  const routes = {};
+  for (const segment of planSegments(trip)) {
+    const route = segment.routable && readyRoute(segment, savedRoutes);
+    if (route) routes[segment.key] = route;
+  }
+  return routes;
+}
+
+/** `savedRoutes` (from a saved trip) are used as-is; only the rest are fetched. */
+export function useDayRoutes(trip, savedRoutes) {
   const [, setVersion] = useState(0);
   const segments = useMemo(() => planSegments(trip), [trip]);
 
   useEffect(() => {
-    const pending = segments.filter((segment) => segment.routable && !routeCache.has(segment.key));
+    const pending = segments.filter(
+      (segment) => segment.routable && !routeCache.has(segment.key) && !savedRoutes?.[segment.key]
+    );
     if (!pending.length) return;
 
     const controller = new AbortController();
@@ -113,10 +132,10 @@ export function useDayRoutes(trip) {
         if (routeCache.get(segment.key)?.status === "loading") routeCache.delete(segment.key);
       }
     };
-  }, [segments]);
+  }, [segments, savedRoutes]);
 
   return segments.map((segment) => {
-    const entry = routeCache.get(segment.key);
-    return { ...segment, route: entry?.status === "ready" ? entry.route : null, loading: entry?.status === "loading" };
+    const route = readyRoute(segment, savedRoutes);
+    return { ...segment, route, loading: !route && routeCache.get(segment.key)?.status === "loading" };
   });
 }

@@ -64,14 +64,15 @@ For a production build: `npm run build && npm start`.
 | `GROQ_MODEL` | no | override the generation model — defaults to `openai/gpt-oss-120b` |
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | for the map | browser key for the Maps JavaScript API, which draws the trip map; without it trips open with a "map couldn't load" notice |
 | `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` | no | a Google Cloud map ID for custom map styling — defaults to Google's `DEMO_MAP_ID` |
-| `GOOGLE_MAPS_API_KEY` | no | server key for Google Places API (New), used for [place grounding](#reliability); without it Roam plans from the model's own knowledge |
+| `GOOGLE_MAPS_API_KEY` | no | server key for Google Places API (New), used for [place grounding](#reliability), and the Routes API, which draws map legs along streets; without it Roam plans from the model's own knowledge and routes with OpenStreetMap |
 | `PLACE_GROUNDING` | no | set to `off` to disable place grounding even when a Google key is present |
+| `GOOGLE_ROUTING` | no | set to `off` to route with OpenStreetMap even when a Google key is present |
 | `NEXT_PUBLIC_APPWRITE_PROJECT_ID` | to save trips | Appwrite project for accounts (email + Google) and saved trips; without it anyone can still plan trips, but saving is off |
 | `NEXT_PUBLIC_APPWRITE_ENDPOINT` | no | defaults to `https://cloud.appwrite.io/v1`; set it to your region's endpoint (e.g. `https://fra.cloud.appwrite.io/v1`) |
 | `NEXT_PUBLIC_APPWRITE_DATABASE_ID` / `NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID` | no | where trips are stored — default `roam` / `roam_trips`; pick IDs no other app uses if the database is shared |
 | `APPWRITE_API_KEY` | setup only | server key used once by `npm run setup:appwrite`; never shipped to the browser |
 
-`GROQ_API_KEY` and `GOOGLE_MAPS_API_KEY` are only read on the server, by [`app/api/generate/route.js`](app/api/generate/route.js) and the `lib/` modules it uses. The `NEXT_PUBLIC_` values are built into the browser bundle, so use a separate browser key restricted to the **Maps JavaScript API** and your site's addresses (e.g. `http://localhost:3000/*`), and keep the server key restricted to **Places API (New)**. Never commit `.env.local`.
+`GROQ_API_KEY` and `GOOGLE_MAPS_API_KEY` are only read on the server, by [`app/api/generate/route.js`](app/api/generate/route.js) and the `lib/` modules it uses. The `NEXT_PUBLIC_` values are built into the browser bundle, so use a separate browser key restricted to the **Maps JavaScript API** and your site's addresses (e.g. `http://localhost:3000/*`), and keep the server key restricted to **Places API (New)** and **Routes API**. Never commit `.env.local`.
 
 **Accounts (Appwrite).** Anyone can plan trips; saving one asks you to log in (and saves it right after, even through the Google redirect). To turn it on:
 
@@ -79,7 +80,7 @@ For a production build: `npm run build && npm start`.
 2. Under **Auth → Settings**, enable **Google**: paste a Google OAuth client ID/secret, and add the redirect URI Appwrite shows to that client in Google Cloud.
 3. Put the project ID (and endpoint) in `.env.local`, create an API key with the databases/tables/columns write scopes, then run `APPWRITE_API_KEY=… npm run setup:appwrite` to create the `roam_trips` table. Rows are private to the account that saved them.
 
-Trips saved in the browser before accounts existed are moved into the first account that logs in on that browser.
+Trips saved in the browser before accounts existed are moved into the first account that logs in on that browser. Each saved trip also stores its map routes (the `routes` column), so reopening it draws streets instantly without asking the routing service again; only legs that changed are fetched. If you created the table before this column existed, run `npm run setup:appwrite` again to add it.
 
 Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,000 Nearby Search Pro calls), a personal project costs nothing; setting daily quota caps on both APIs in Google Cloud makes sure of it.
 
@@ -167,7 +168,8 @@ External services other than Google Maps Platform are free and keyless, and none
 | service | used for | called from |
 | --- | --- | --- |
 | [`Google Maps JavaScript API`](https://developers.google.com/maps/documentation/javascript) | the trip map, pins and route lines (vector map, animated with `moveCamera`) | browser, [`components/TripMap.js`](components/TripMap.js) |
-| [`FOSSGIS OSRM`](https://routing.openstreetmap.de/about.html) | walking, cycling and driving routes (at most three requests at a time, one retry when rate-limited) | server proxy [`app/api/directions/route.js`](app/api/directions/route.js) |
+| [`Google Routes API`](https://developers.google.com/maps/documentation/routes) | walking, cycling and driving routes (needs the server key; legs are split at 10 intermediate stops to stay on the Essentials tier — 10,000 free calls a month) | server proxy [`app/api/directions/route.js`](app/api/directions/route.js) |
+| [`FOSSGIS OSRM`](https://routing.openstreetmap.de/about.html) | fallback router when there's no Google key or Google fails (at most three requests at a time, one retry) | server proxy [`app/api/directions/route.js`](app/api/directions/route.js) |
 | [`Wikipedia API`](https://www.mediawiki.org/wiki/API:Main_page) | place and destination photos | browser, [`hooks/usePlaceImages.js`](hooks/usePlaceImages.js) |
 | [`Google Places API (New)`](https://developers.google.com/maps/documentation/places/web-service/nearby-search) | candidate places for grounding (optional, needs a key) | server, [`lib/googlePlaces.js`](lib/googlePlaces.js) |
 

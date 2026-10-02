@@ -280,6 +280,11 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
 .auth-legal { margin: -4px 0 0; color: var(--muted); font-size: 13.5px; text-align: center; }
 .auth-switch { margin: 22px 0 0; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 16px; text-align: center; }
 .auth-switch a { margin-left: 4px; color: var(--ink); text-underline-offset: 3px; }
+.auth-text-button { margin-left: 4px; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.auth-text-button:disabled { opacity: 0.6; }
+.auth-code { font-size: 20px; letter-spacing: 0.4em; font-variant-numeric: tabular-nums; }
+.auth-link-button { height: 50px; font-size: 16px; }
+.auth-link-button svg, .auth-link-button .spinner { width: 18px; height: 18px; }
 .auth-message { margin: 0; padding: 10px 14px; border: 1px solid #e2d6f6; border-radius: 12px; background: #f7f3fe; color: #4b3180; font-size: 14px; line-height: 1.45; animation: fade-in 0.25s ease both; }
 .auth-message.is-error { border-color: #f0d4d6; background: #fff7f7; color: var(--rose); }
 .auth-pending { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -12px -8px 22px; padding: 10px 10px 10px 16px; border-radius: 14px; background: var(--accent-soft); color: #4b3180; font-size: 14px; line-height: 1.4; }

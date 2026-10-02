@@ -419,8 +419,14 @@ export default function TripMap({
           </>
         )}
         <p className="map-credit">
-          Routes © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors via{" "}
-          <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noreferrer">FOSSGIS</a> · Places and routes are AI suggestions
+          {/* Google routes are covered by the map's own attribution; older or fallback routes come from OSM. */}
+          {dayRoutes.some((segment) => segment.route && segment.route.source !== "google") && (
+            <>
+              Routes © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors via{" "}
+              <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noreferrer">FOSSGIS</a> ·{" "}
+            </>
+          )}
+          Places and routes are AI suggestions
         </p>
       </div>
     </div>

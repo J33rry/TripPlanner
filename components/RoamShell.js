@@ -13,14 +13,14 @@ import Wordmark from "./Wordmark";
 import AccountMenu from "./AccountMenu";
 import { BookmarkIcon, CheckIcon, PlusIcon } from "./icons";
 import { useAuth } from "@/hooks/useAuth";
-import { useDayRoutes } from "@/hooks/useDayRoutes";
+import { routesFor, useDayRoutes } from "@/hooks/useDayRoutes";
 import { useGenerateTrip } from "@/hooks/useGenerateTrip";
 import { usePlaceImages } from "@/hooks/usePlaceImages";
 import { useTripState } from "@/hooks/useTripState";
 import { DESTINATIONS, FLIGHT_ROUTES } from "@/lib/destinations";
 import { distanceKm, getTripCenter, getTripStops } from "@/lib/geo";
 import { dayCount, destinationLabel, placeTitle } from "@/lib/tripDisplay";
-import { deleteTrip, importLegacyTrips, listTrips, saveTrip } from "@/lib/tripStore";
+import { deleteTrip, importLegacyTrips, listTrips, saveTrip, saveTripRoutes } from "@/lib/tripStore";
 
 const MAP_READY_TIMEOUT_MS = 3500;
 const DESKTOP_MIN_WIDTH = 900;
@@ -286,7 +286,7 @@ export default function RoamShell({ children }) {
     setSaving(true);
     try {
       const existing = savedTrips.find((item) => item.data?.tripId === trip.tripId);
-      const entry = await saveTrip(userId, trip, existing?.id);
+      const entry = await saveTrip(userId, trip, existing?.id, routesFor(trip, existing?.routes));
       rememberSaved(entry);
       flashSaveMessage("Saved");
       if (entry.id !== routeTripId) {
@@ -308,7 +308,7 @@ export default function RoamShell({ children }) {
     setPendingTrip(null);
     if (pending && account) {
       try {
-        const entry = await saveTrip(account.$id, pending);
+        const entry = await saveTrip(account.$id, pending, null, routesFor(pending));
         rememberSaved(entry);
         setTripsReload((n) => n + 1);
         router.replace(tripHref(entry));
@@ -388,7 +388,25 @@ export default function RoamShell({ children }) {
   const stops = useMemo(() => getTripStops(trip), [trip]);
   const stopNumbers = useMemo(() => Object.fromEntries(stops.map((stop) => [stop.id, stop.number])), [stops]);
   const center = useMemo(() => getTripCenter(trip), [trip]);
-  const dayRoutes = useDayRoutes(trip);
+  const openSaved = useMemo(() => savedTrips.find((item) => item.id === openSavedId) || null, [savedTrips, openSavedId]);
+  const dayRoutes = useDayRoutes(trip, openSaved?.routes);
+
+  // Legs that finish loading after the trip was saved are stored with it too,
+  // once nothing is still loading. Only the saved version's legs count, so
+  // unsaved edits don't leak into the stored routes.
+  const routesSettled = dayRoutes.every((segment) => !segment.loading);
+  const readyRouteKeys = dayRoutes.filter((segment) => segment.route).map((segment) => segment.key).join("|");
+  useEffect(() => {
+    if (!openSaved || !userId || !routesSettled) return;
+    const routes = routesFor(openSaved.data, openSaved.routes);
+    if (!Object.keys(routes).some((key) => !openSaved.routes?.[key])) return;
+    const timer = setTimeout(() => {
+      saveTripRoutes(openSaved.id, routes)
+        .then((entry) => setSavedTrips((list) => list.map((item) => (item.id === entry.id ? entry : item))))
+        .catch((routesError) => console.error("Couldn’t store trip routes", routesError));
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [openSaved, userId, routesSettled, readyRouteKeys]);
   const images = usePlaceImages([
     placeTitle(trip),
     ...(trip?.stops.flatMap((day) => day.activities.map((activity) => activity.location)) || []),

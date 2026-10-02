@@ -40,7 +40,7 @@ await ensure(`table "${tableId}"`, () =>
 );
 // The database may be shared with other apps; never add columns to a table Roam didn't make.
 const { columns } = await tables.getTable({ databaseId, tableId });
-const foreign = columns.map((column) => column.key).filter((key) => key !== "title" && key !== "data");
+const foreign = columns.map((column) => column.key).filter((key) => !["title", "data", "routes"].includes(key));
 if (foreign.length) {
   console.error(`✗ table "${tableId}" already exists with other columns (${foreign.join(", ")}) — it belongs to something else.`);
   console.error("  Set NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID to an unused ID and run this again.");
@@ -48,5 +48,7 @@ if (foreign.length) {
 }
 await ensure("column title", () => tables.createVarcharColumn({ databaseId, tableId, key: "title", size: 256, required: true }));
 await ensure("column data", () => tables.createLongtextColumn({ databaseId, tableId, key: "data", required: true }));
+// Map routes fetched for the trip, so reopening it doesn't depend on the routing service.
+await ensure("column routes", () => tables.createLongtextColumn({ databaseId, tableId, key: "routes", required: false }));
 
 console.log("Appwrite is ready for Roam.");

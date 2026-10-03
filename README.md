@@ -24,7 +24,8 @@ input     free-form text — "4 relaxed days in lisbon with great food"
 model     groq · openai/gpt-oss-120b · strict json schema
 pipeline  guardrail → generate → repair → zod → interactive ui
 edit      expand · inline edit · drag to reorder · remove · refine
-saved     browser-local · 10 trips · a url per trip
+saved     appwrite account · a url per trip · view-only share links
+theme     light · dark · follows the system until you pick one
 ```
 
 <br>
@@ -40,6 +41,7 @@ saved     browser-local · 10 trips · a url per trip
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Groq-0d1117?style=flat-square&logoColor=ffffff"/><img src="https://img.shields.io/badge/Groq-ffffff?style=flat-square&logoColor=000000" alt="Groq"/></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Zod-0d1117?style=flat-square&logo=zod&logoColor=ffffff"/><img src="https://img.shields.io/badge/Zod-ffffff?style=flat-square&logo=zod&logoColor=000000" alt="Zod"/></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Google%20Maps-0d1117?style=flat-square&logo=googlemaps&logoColor=ffffff"/><img src="https://img.shields.io/badge/Google%20Maps-ffffff?style=flat-square&logo=googlemaps&logoColor=000000" alt="Google Maps"/></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Appwrite-0d1117?style=flat-square&logo=appwrite&logoColor=ffffff"/><img src="https://img.shields.io/badge/Appwrite-ffffff?style=flat-square&logo=appwrite&logoColor=000000" alt="Appwrite"/></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/dnd%20kit-0d1117?style=flat-square&logoColor=ffffff"/><img src="https://img.shields.io/badge/dnd%20kit-ffffff?style=flat-square&logoColor=000000" alt="dnd kit"/></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Tailwind%20CSS-0d1117?style=flat-square&logo=tailwindcss&logoColor=ffffff"/><img src="https://img.shields.io/badge/Tailwind%20CSS-ffffff?style=flat-square&logo=tailwindcss&logoColor=000000" alt="Tailwind CSS"/></picture>
 
@@ -70,8 +72,10 @@ For a production build: `npm run build && npm start`.
 | `NEXT_PUBLIC_APPWRITE_PROJECT_ID` | to save trips | Appwrite project for accounts (email + Google) and saved trips; without it anyone can still plan trips, but saving is off |
 | `NEXT_PUBLIC_APPWRITE_ENDPOINT` | no | defaults to `https://cloud.appwrite.io/v1`; set it to your region's endpoint (e.g. `https://fra.cloud.appwrite.io/v1`) |
 | `NEXT_PUBLIC_APPWRITE_DATABASE_ID` / `NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID` | no | where trips are stored — default `roam` / `roam_trips`; pick IDs no other app uses if the database is shared |
-| `APPWRITE_API_KEY` | setup only | server key used once by `npm run setup:appwrite`; never shipped to the browser |
+| `APPWRITE_API_KEY` | setup only | server key used only by `npm run setup:appwrite` and `npm run deploy:onboarding`; never shipped to the browser |
 | `APPWRITE_SHARE_API_KEY` | to open share links | server key with only the `rows.read` scope; the `/share/…` page uses it to show a shared trip to people who don't own it |
+| `ROAM_APP_URL` | for the welcome email | your deployed site; `npm run deploy:onboarding` points the welcome email's "Plan your first trip" button here |
+| `BREVO_SMTP_LOGIN` / `BREVO_SMTP_KEY` / `MAIL_FROM_EMAIL` / `MAIL_FROM_NAME` | no | lets `npm run deploy:onboarding` create or update the Brevo SMTP provider in Appwrite Messaging; leave them out if an email provider is already set up. The from address must be a verified Brevo sender; the name defaults to `Roam` |
 
 `GROQ_API_KEY` and `GOOGLE_MAPS_API_KEY` are only read on the server, by [`app/api/generate/route.js`](app/api/generate/route.js) and the `lib/` modules it uses. The `NEXT_PUBLIC_` values are built into the browser bundle, so use a separate browser key restricted to the **Maps JavaScript API** and your site's addresses (e.g. `http://localhost:3000/*`), and keep the server key restricted to **Places API (New)** and **Routes API**. Never commit `.env.local`.
 
@@ -80,10 +84,15 @@ For a production build: `npm run build && npm start`.
 1. Create a project at [cloud.appwrite.io](https://cloud.appwrite.io) and add a **Web** platform with hostname `localhost` (plus your production domain).
 2. Under **Auth → Settings**, enable **Google**: paste a Google OAuth client ID/secret, and add the redirect URI Appwrite shows to that client in Google Cloud.
 3. Put the project ID (and endpoint) in `.env.local`, create an API key with the databases/tables/columns write scopes, then run `APPWRITE_API_KEY=… npm run setup:appwrite` to create the `roam_trips` table. Rows are private to the account that saved them.
+4. Optionally, paste the branded emails in [`appwrite/email-templates/`](appwrite/email-templates) into **Auth → Templates** (Email OTP, Magic URL, Password recovery). The comment at the top of each file gives its subject line.
+
+People sign in with Google, email and password, or a one-time sign-in link sent by email. New accounts, and password logins to accounts that aren't verified yet, must enter a 6-digit code sent by email, so every account has a verified email. **Forgot password** sends a reset link to `/reset-password`. If **Remember me** is unchecked, the session ends when the browser closes.
 
 Trips saved in the browser before accounts existed are moved into the first account that logs in on that browser. Each saved trip also stores its map routes (the `routes` column), so reopening it draws streets instantly without asking the routing service again; only legs that changed are fetched. If you created the table before this column existed, run `npm run setup:appwrite` again to add it.
 
 **Sharing.** **Share** in a trip's header saves the trip and copies a view-only link (`/share/<id>`); friends see the map and itinerary without edit controls, no account needed, and see changes the owner saves later. **Stop sharing** turns the link off, and sharing again issues a new one. The link's ID lives in the trip's `shareId` column. Rows stay private to their owner, so the share page looks the trip up on the server with `APPWRITE_SHARE_API_KEY`; making rows publicly readable would let anyone list every shared trip. Run `npm run setup:appwrite` again to add the column and its index to an existing table.
+
+**Welcome email.** [`appwrite/functions/onboarding-email`](appwrite/functions/onboarding-email) is an Appwrite Function that runs on `users.*.sessions.*.create`. It sends a welcome email the first time a verified user signs in, whichever way they sign in, then adds a server-only `welcomed` label so the email is never sent twice. Accounts older than `WELCOME_MAX_AGE_DAYS` (a function variable, default 7) get the label without the email. To deploy it, give `APPWRITE_API_KEY` the `functions.read/write` and `providers.read/write` scopes, set `ROAM_APP_URL` (plus the Brevo values if Appwrite Messaging doesn't have an email provider yet), and run `npm run deploy:onboarding`. You can run it again safely: it updates the function and provider in place and waits for the build to finish.
 
 Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,000 Nearby Search Pro calls), a personal project costs nothing; setting daily quota caps on both APIs in Google Cloud makes sure of it.
 
@@ -94,6 +103,7 @@ Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,00
 | `npm start` | serve the production build |
 | `npm run lint` | run ESLint |
 | `npm run setup:appwrite` | create the Appwrite database and `roam_trips` table (idempotent; refuses to touch a table it didn't make) |
+| `npm run deploy:onboarding` | deploy the welcome-email Appwrite Function, and the Brevo email provider if configured (idempotent) |
 | `npm run gen:land-mask` | regenerate `lib/landMask.js`, the globe's land-dot bitmask, from Natural Earth data |
 
 <br>
@@ -110,7 +120,10 @@ Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,00
 | `dotted globe` | real coastlines as a 1° dot grid, auto-spin, drag to rotate, orbit rings, flight arcs and destination markers |
 | `thinking state` | while a plan generates, the land dots leave their continents and swirl into a pulsing orb, then flow back on success, error or cancel |
 | `globe → map` | the globe turns to the destination and dives in until its curve is nearly flat; a Google map loads at exactly the matching scale, crossfades in and flies down to street level on a Google Earth-style zoom curve |
-| `saved trips` | browser-local saving (ten kept), a searchable `/trips` page with globe markers, and a page per trip at `/trips/[id]` that survives reloads and Back/Forward |
+| `accounts` | Google, email + password with a 6-digit verification code, emailed sign-in links and password reset, on `/login`, `/signup` and `/reset-password` |
+| `saved trips` | saved to your Appwrite account along with their map routes, a searchable `/trips` page with globe markers, and a page per trip at `/trips/[id]` that survives reloads and Back/Forward |
+| `sharing` | a view-only `/share/<id>` link per trip that needs no account, shows the owner's later saves and can be turned off |
+| `dark mode` | follows the system theme until you use the header toggle, which is remembered. The Google map switches color scheme to match, and an inline script sets the theme before first paint so pages don't flash light |
 | `persistent shell` | the globe lives in [`RoamShell`](components/RoamShell.js), rendered by the layout, so Home ⇄ Trips glides one globe instead of remounting it |
 | `responsive` | side panel on desktop, bottom sheet on phones, reduced-motion aware |
 
@@ -162,11 +175,11 @@ Grounding is best-effort: with no key, `PLACE_GROUNDING=off`, an error, a timeou
 - Without a Google key, place coordinates come from the AI. Obviously wrong ones are dropped, but pins can still be slightly off. Even with grounding, Roam does not check opening hours or prices.
 - Trips saved before map support have no coordinates; they open on a world map until refined.
 - Photos are matched by Wikipedia article title, so some places show an illustrated fallback instead.
-- Saved trips live in this browser's local storage and are not synced.
+- Saving and sharing need Appwrite to be configured; without it, trips can be planned but not kept. The trips page lists the 100 most recently updated trips.
 - Strict JSON-schema output is used for `openai/gpt-oss-*` models; other models fall back to JSON mode, which leans harder on the repair step.
 - Results are not streamed — the thinking animation covers the wait.
 
-External services other than Google Maps Platform are free and keyless, and none of them receive the Groq key. The routing service is community-run and best-effort, so the app falls back to straight-line routes and illustrated thumbnails when it or Wikipedia is down.
+Apart from Google Maps Platform and Appwrite, the external services are free and need no key. None of them receive the Groq key. The routing service is community-run and best-effort, so the app falls back to straight-line routes and illustrated thumbnails when it or Wikipedia is down.
 
 | service | used for | called from |
 | --- | --- | --- |
@@ -175,6 +188,7 @@ External services other than Google Maps Platform are free and keyless, and none
 | [`FOSSGIS OSRM`](https://routing.openstreetmap.de/about.html) | fallback router when there's no Google key or Google fails (at most three requests at a time, one retry) | server proxy [`app/api/directions/route.js`](app/api/directions/route.js) |
 | [`Wikipedia API`](https://www.mediawiki.org/wiki/API:Main_page) | place and destination photos | browser, [`hooks/usePlaceImages.js`](hooks/usePlaceImages.js) |
 | [`Google Places API (New)`](https://developers.google.com/maps/documentation/places/web-service/nearby-search) | candidate places for grounding (optional, needs a key) | server, [`lib/googlePlaces.js`](lib/googlePlaces.js) |
+| [`Appwrite`](https://appwrite.io/docs) | accounts, saved trips, share links and the welcome email (optional, needs a project) | browser, [`lib/appwrite.js`](lib/appwrite.js); server, [`lib/sharedTrips.js`](lib/sharedTrips.js) |
 
 <br>
 

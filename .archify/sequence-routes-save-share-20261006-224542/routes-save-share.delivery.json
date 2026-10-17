@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "29e13e68-6c52-401b-9108-92162671180f",
+  "status": "current",
+  "command": "deliver",
+  "type": "sequence",
+  "input": "/Users/rajanti/all/TripPlanner/.archify/sequence-routes-save-share-20261006-224542/candidate.json",
+  "output": "/Users/rajanti/all/TripPlanner/.archify/sequence-routes-save-share-20261006-224542/routes-save-share.html",
+  "specification": {
+    "sha256": "2faebe757adcbf3659f8e8a84820911ea87ccf93bc6c0f655043636f64876d77",
+    "bytes": 6288
+  },
+  "artifact": {
+    "sha256": "a6594a50fb024b2ae3a5fb5ec6e2d76603e217fc438059770e729e1253b7f3a2",
+    "bytes": 767576
+  }
+}

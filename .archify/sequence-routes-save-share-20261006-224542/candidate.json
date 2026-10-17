@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Map Routing, Save & Share — Request Pattern",
+    "output": ".archify/sequence-routes-save-share-20261006-224542/routes-save-share.html",
+    "viewBox": [1080, 680],
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/J33rry/TripPlanner.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "e4c26dfed361d79a7c802dc56882b65c3d00ddfb"
+    }
+  },
+  "participants": [
+    {
+      "id": "webapp", "type": "frontend", "label": "Roam web app", "sublabel": "RoamShell + hooks",
+      "sources": [
+        { "path": "hooks/useDayRoutes.js", "line": 95, "end_line": 135, "label": "useDayRoutes" },
+        { "path": "components/RoamShell.js", "line": 295, "end_line": 334, "label": "persistTrip / share" },
+        { "path": "components/RoamShell.js", "line": 437, "end_line": 454, "label": "store settled routes" }
+      ]
+    },
+    {
+      "id": "directions", "type": "backend", "label": "/api/directions", "sublabel": "route handler",
+      "sources": [{ "path": "app/api/directions/route.js", "line": 127, "end_line": 173, "label": "POST" }]
+    },
+    {
+      "id": "gmroutes", "type": "cloud", "label": "Google Routes", "sublabel": "computeRoutes v2",
+      "sources": [{ "path": "app/api/directions/route.js", "line": 23, "end_line": 79, "label": "googleChunk / googleRoute" }]
+    },
+    {
+      "id": "osrm", "type": "external", "label": "OSRM", "sublabel": "openstreetmap.de",
+      "sources": [{ "path": "app/api/directions/route.js", "line": 81, "end_line": 114, "label": "osmRequest / osmRoute" }]
+    },
+    {
+      "id": "tables", "type": "database", "label": "Appwrite TablesDB", "sublabel": "roam_trips",
+      "sources": [
+        { "path": "lib/tripStore.js", "line": 55, "end_line": 73, "label": "saveTrip / saveTripRoutes" },
+        { "path": "lib/tripStore.js", "line": 75, "end_line": 96, "label": "shareTrip / unshareTrip" }
+      ]
+    },
+    {
+      "id": "sharepage", "type": "backend", "label": "/share/[shareId]", "sublabel": "server component",
+      "sources": [
+        { "path": "app/share/[shareId]/page.js", "line": 7, "end_line": 27, "label": "load + metadata" },
+        { "path": "lib/sharedTrips.js", "line": 15, "end_line": 44, "label": "getSharedTrip" }
+      ]
+    },
+    { "id": "viewer", "type": "external", "label": "Link viewer", "sublabel": "any browser", "icon": "person" }
+  ],
+  "segments": [
+    { "from": 150, "to": 318, "label": "Route each day's legs" },
+    { "from": 330, "to": 412, "label": "Save" },
+    { "from": 425, "to": 565, "label": "Share" }
+  ],
+  "messages": [
+    { "id": "leg-request", "from": "webapp", "to": "directions", "y": 165, "label": "POST {coordinates, profile}", "variant": "emphasis", "note": "per leg, debounced 350 ms" },
+    { "id": "google-call", "from": "directions", "to": "gmroutes", "y": 193, "label": "computeRoutes (if key)" },
+    { "id": "google-reply", "from": "gmroutes", "to": "directions", "y": 221, "label": "polyline | 401/403", "variant": "return", "note": "401/403 → 10 min backoff" },
+    { "id": "osrm-call", "from": "directions", "to": "osrm", "y": 249, "label": "fallback route", "variant": "dashed", "note": "one retry on 429" },
+    { "id": "osrm-reply", "from": "osrm", "to": "directions", "y": 277, "label": "GeoJSON route", "variant": "return" },
+    { "id": "leg-reply", "from": "directions", "to": "webapp", "y": 305, "label": "{distance, duration, geometry}", "variant": "return", "note": "server cache, 200 entries" },
+    { "id": "save-row", "from": "webapp", "to": "tables", "y": 345, "label": "Save: createRow / updateRow", "variant": "emphasis", "note": "owner-only permissions" },
+    { "id": "saved-row", "from": "tables", "to": "webapp", "y": 373, "label": "saved row", "variant": "return" },
+    { "id": "save-routes", "from": "webapp", "to": "tables", "y": 401, "label": "saveTripRoutes()", "variant": "dashed", "note": "once legs settle" },
+    { "id": "share-row", "from": "webapp", "to": "tables", "y": 441, "label": "Share: updateRow {shareId}", "variant": "security", "note": "24 random bytes" },
+    { "id": "open-link", "from": "viewer", "to": "sharepage", "y": 469, "label": "GET /share/:id" },
+    { "id": "lookup", "from": "sharepage", "to": "tables", "y": 497, "label": "listRows (server key)", "variant": "security" },
+    { "id": "lookup-row", "from": "tables", "to": "sharepage", "y": 525, "label": "row | none", "variant": "return" },
+    { "id": "render-shared", "from": "sharepage", "to": "viewer", "y": 553, "label": "read-only trip", "variant": "return", "note": "no owner ID, noindex" }
+  ],
+  "activations": [
+    { "participant": "webapp", "from": 160, "to": 311, "type": "frontend" },
+    { "participant": "directions", "from": 165, "to": 305, "type": "backend" },
+    { "participant": "gmroutes", "from": 188, "to": 227, "type": "cloud" },
+    { "participant": "osrm", "from": 244, "to": 283, "type": "external" },
+    { "participant": "webapp", "from": 340, "to": 446, "type": "frontend" },
+    { "participant": "tables", "from": 340, "to": 379, "type": "database" },
+    { "participant": "sharepage", "from": 469, "to": 553, "type": "backend" },
+    { "participant": "tables", "from": 492, "to": 531, "type": "database" },
+    { "participant": "viewer", "from": 464, "to": 559, "type": "external" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan", "title": "Routing details",
+      "items": [
+        "Profiles: foot / bike / car, 2–25 points per leg",
+        "Google legs split into ≤12-point chunks (Essentials billing)",
+        "Legs already saved with the trip are never re-fetched"
+      ]
+    },
+    {
+      "dot": "emerald", "title": "Saving",
+      "items": [
+        "Guests are sent to /login; the trip waits in sessionStorage",
+        "After sign-in the pending trip is saved automatically",
+        "Route coordinates are rounded to ~1 m before storing"
+      ]
+    },
+    {
+      "dot": "rose", "title": "Sharing",
+      "items": [
+        "Rows stay private; the share page uses APPWRITE_SHARE_API_KEY",
+        "Stop sharing sets shareId to null — the old link dies at once",
+        "Page reads fresh on every visit (connection())"
+      ]
+    }
+  ]
+}

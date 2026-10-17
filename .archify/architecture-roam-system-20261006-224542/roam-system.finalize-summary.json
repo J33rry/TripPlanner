@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/rajanti/all/TripPlanner/.archify/architecture-roam-system-20261006-224542/candidate.json",
+    "sha256": "f11ead571a89294581791d30a1d72bf14e994969b5160baf38b00ac53699faec",
+    "bytes": 9240
+  },
+  "artifact": {
+    "path": "/Users/rajanti/all/TripPlanner/.archify/architecture-roam-system-20261006-224542/roam-system.html",
+    "sha256": "72c20af8ae6237156833e0e13e1e66763b0ca44b2eefb696775e22512d9d85d7",
+    "bytes": 786018
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/rajanti/all/TripPlanner/.archify/architecture-roam-system-20261006-224542/roam-system.finalize.json",
+    "summaryReceipt": "/Users/rajanti/all/TripPlanner/.archify/architecture-roam-system-20261006-224542/roam-system.finalize-summary.json",
+    "browserCheckReceipt": "/Users/rajanti/all/TripPlanner/.archify/architecture-roam-system-20261006-224542/roam-system.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-06T17:17:59.062Z",
+    "source": "network",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 2372
+}

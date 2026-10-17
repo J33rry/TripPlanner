@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Roam Trip Planner — System Architecture",
+    "output": ".archify/architecture-roam-system-20261006-224542/roam-system.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/J33rry/TripPlanner.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "e4c26dfed361d79a7c802dc56882b65c3d00ddfb"
+    }
+  },
+  "components": [
+    {
+      "id": "traveler", "type": "external", "label": "Traveler", "sublabel": "browser", "icon": "person",
+      "pos": [40, 365], "size": [110, 60]
+    },
+    {
+      "id": "webapp", "type": "frontend", "label": "Roam web app", "sublabel": "React client · RoamShell + hooks",
+      "tag": "useAuth · useGenerateTrip · useDayRoutes",
+      "pos": [270, 280], "size": [300, 230],
+      "sources": [
+        { "path": "components/RoamShell.js", "line": 130, "end_line": 210, "label": "hooks wired in RoamShell" },
+        { "path": "hooks/useGenerateTrip.js", "line": 11, "end_line": 56, "label": "POST /api/generate" },
+        { "path": "hooks/useDayRoutes.js", "line": 95, "end_line": 135, "label": "POST /api/directions" }
+      ]
+    },
+    {
+      "id": "mapsjs", "type": "cloud", "label": "Google Maps JS", "sublabel": "maps + marker libraries",
+      "pos": [270, 110], "size": [140, 60],
+      "sources": [{ "path": "components/TripMap.js", "line": 11, "end_line": 27, "label": "importLibrary" }]
+    },
+    {
+      "id": "wikipedia", "type": "external", "label": "Wikipedia API", "sublabel": "place thumbnails",
+      "pos": [430, 110], "size": [140, 60],
+      "sources": [{ "path": "hooks/usePlaceImages.js", "line": 5, "end_line": 23, "label": "w/api.php query" }]
+    },
+    {
+      "id": "generate", "type": "backend", "label": "/api/generate", "sublabel": "guardrail → ground → plan",
+      "pos": [730, 300], "size": [170, 64],
+      "sources": [
+        { "path": "app/api/generate/route.js", "line": 37, "end_line": 181, "label": "POST handler" },
+        { "path": "lib/guardrails.js", "line": 32, "end_line": 108, "label": "precheck + classifyRequest" },
+        { "path": "lib/schema.js", "line": 63, "label": "validateTrip (zod)" }
+      ]
+    },
+    {
+      "id": "groq", "type": "cloud", "label": "Groq LLM API", "sublabel": "gpt-oss 20b / 120b",
+      "pos": [1050, 302], "size": [150, 60],
+      "sources": [
+        { "path": "app/api/generate/route.js", "line": 10, "end_line": 12, "label": "Groq client" },
+        { "path": "lib/constants.js", "line": 1, "label": "DEFAULT_GROQ_MODEL" },
+        { "path": "lib/guardrails.js", "line": 1, "label": "GUARDRAIL_MODEL" }
+      ]
+    },
+    {
+      "id": "places", "type": "cloud", "label": "Google Places API", "sublabel": "searchText · searchNearby",
+      "pos": [740, 110], "size": [150, 60],
+      "sources": [
+        { "path": "lib/googlePlaces.js", "line": 7, "end_line": 30, "label": "Places endpoints" },
+        { "path": "lib/placeCandidates.js", "line": 206, "end_line": 220, "label": "gatherCandidates" }
+      ]
+    },
+    {
+      "id": "directions", "type": "backend", "label": "/api/directions", "sublabel": "per-leg routing · LRU 200",
+      "pos": [730, 430], "size": [170, 64],
+      "sources": [{ "path": "app/api/directions/route.js", "line": 127, "end_line": 173, "label": "POST handler" }]
+    },
+    {
+      "id": "gmroutes", "type": "cloud", "label": "Google Routes API", "sublabel": "computeRoutes",
+      "pos": [1050, 432], "size": [150, 60],
+      "sources": [{ "path": "app/api/directions/route.js", "line": 14, "end_line": 79, "label": "googleRoute" }]
+    },
+    {
+      "id": "osrm", "type": "external", "label": "OSRM (FOSSGIS)", "sublabel": "routing.openstreetmap.de",
+      "pos": [1050, 530], "size": [150, 60],
+      "sources": [{ "path": "app/api/directions/route.js", "line": 81, "end_line": 114, "label": "osmRoute fallback" }]
+    },
+    {
+      "id": "account", "type": "security", "label": "Appwrite Account", "sublabel": "email OTP · Google OAuth",
+      "pos": [270, 620], "size": [140, 64],
+      "sources": [
+        { "path": "hooks/useAuth.js", "line": 75, "end_line": 85, "label": "verified-only sessions" },
+        { "path": "hooks/useAuth.js", "line": 110, "end_line": 173, "label": "OTP, OAuth, magic link" }
+      ]
+    },
+    {
+      "id": "tables", "type": "database", "label": "Appwrite TablesDB", "sublabel": "roam_trips · row security",
+      "pos": [430, 620], "size": [140, 64],
+      "sources": [
+        { "path": "lib/tripStore.js", "line": 43, "end_line": 100, "label": "list/save/share/delete" },
+        { "path": "scripts/setup-appwrite.mjs", "line": 39, "end_line": 63, "label": "table, columns, index" }
+      ]
+    },
+    {
+      "id": "sharepage", "type": "backend", "label": "/share/[shareId]", "sublabel": "server-rendered, read-only",
+      "pos": [730, 620], "size": [170, 64],
+      "sources": [
+        { "path": "app/share/[shareId]/page.js", "line": 7, "end_line": 27, "label": "SSR page" },
+        { "path": "lib/sharedTrips.js", "line": 15, "end_line": 44, "label": "getSharedTrip" }
+      ]
+    },
+    {
+      "id": "viewer", "type": "external", "label": "Link viewer", "sublabel": "no account needed", "icon": "person",
+      "pos": [1050, 622], "size": [150, 60]
+    },
+    {
+      "id": "onboarding", "type": "backend", "label": "onboarding-email", "sublabel": "Appwrite Function",
+      "pos": [270, 790], "size": [140, 64],
+      "sources": [
+        { "path": "appwrite/functions/onboarding-email/src/main.js", "line": 33, "end_line": 74, "label": "handler" },
+        { "path": "scripts/deploy-onboarding.mjs", "line": 85, "end_line": 86, "label": "event trigger" }
+      ]
+    },
+    {
+      "id": "messaging", "type": "messagebus", "label": "Appwrite Messaging", "sublabel": "welcome email",
+      "pos": [530, 790], "size": [150, 64],
+      "sources": [{ "path": "appwrite/functions/onboarding-email/src/main.js", "line": 57, "end_line": 65, "label": "createEmail" }]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Next.js server (route handlers)", "wraps": ["generate", "directions", "sharepage"] },
+    { "kind": "region", "label": "Appwrite Cloud project", "wraps": ["account", "tables", "onboarding", "messaging"] }
+  ],
+  "connections": [
+    { "id": "traveler-uses-app", "from": "traveler", "to": "webapp", "label": "describe trip", "variant": "emphasis" },
+    { "id": "app-generate", "from": "webapp", "to": "generate", "label": "POST /api/generate", "variant": "emphasis" },
+    { "id": "generate-groq", "from": "generate", "to": "groq", "label": "3 LLM calls", "variant": "emphasis" },
+    { "id": "generate-places", "from": "generate", "to": "places", "label": "grounding (if key)", "variant": "dashed" },
+    { "id": "app-directions", "from": "webapp", "to": "directions", "label": "POST /api/directions" },
+    { "id": "directions-google", "from": "directions", "to": "gmroutes", "label": "first (if key)" },
+    { "id": "directions-osrm", "from": "directions", "to": "osrm", "label": "fallback", "variant": "dashed" },
+    { "id": "app-mapsjs", "from": "webapp", "to": "mapsjs", "label": "map + markers" },
+    { "id": "app-wikipedia", "from": "webapp", "to": "wikipedia", "label": "thumbnails", "variant": "dashed" },
+    { "id": "app-account", "from": "webapp", "to": "account", "label": "sign in", "variant": "security" },
+    { "id": "app-tables", "from": "webapp", "to": "tables", "label": "owner CRUD" },
+    { "id": "share-tables", "from": "sharepage", "to": "tables", "label": "server key", "variant": "security" },
+    { "id": "viewer-share", "from": "viewer", "to": "sharepage", "label": "open link" },
+    { "id": "account-onboarding", "from": "account", "to": "onboarding", "label": "session.create event", "variant": "dashed" },
+    { "id": "onboarding-messaging", "from": "onboarding", "to": "messaging", "label": "createEmail" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald", "title": "Trip generation",
+      "items": [
+        "precheck: non-empty, ≤1000 chars, contains letters",
+        "classifyRequest (gpt-oss-safeguard-20b) must say “travel”",
+        "extractPlaces (gpt-oss-20b) → Google Places candidates, 5 s budget",
+        "gpt-oss-120b writes JSON; parse → snap to candidates → zod validate"
+      ]
+    },
+    {
+      "dot": "cyan", "title": "Maps & routing",
+      "items": [
+        "Each day's legs routed via /api/directions (debounced 350 ms)",
+        "Google Routes first; 401/403 backs off 10 min to OSRM",
+        "Finished legs saved with the trip, so reopening skips routing"
+      ]
+    },
+    {
+      "dot": "rose", "title": "Accounts & sharing",
+      "items": [
+        "Only email-verified Appwrite sessions count as signed in",
+        "Trip rows are read/update/delete for their owner only",
+        "Share link = random shareId; /share reads it with a server API key",
+        "Shared view never returns the owner's row ID or permissions"
+      ]
+    },
+    {
+      "dot": "amber", "title": "Onboarding",
+      "items": [
+        "Fires on users.*.sessions.*.create — not callable over HTTP",
+        "Sends once per verified user, tracked by a “welcomed” label"
+      ]
+    }
+  ]
+}

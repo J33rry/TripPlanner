@@ -8,7 +8,6 @@ import { CheckIcon, GripIcon, MoreIcon, PencilIcon, TrashIcon } from "./icons";
 
 const draftFrom = (activity) => ({
   title: activity.title,
-  time: activity.time || "",
   location: activity.location || "",
   description: activity.description || "",
 });
@@ -52,7 +51,7 @@ export default function ActivityCard({
     };
   }, [menuOpen]);
 
-  const meta = [activity.time, activity.location].filter(Boolean).join(" · ");
+  const meta = activity.location;
   const setRefs = (el) => {
     setNodeRef(el);
     rowRef.current = el;
@@ -88,10 +87,7 @@ export default function ActivityCard({
           }}
         >
           <input aria-label="Activity title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required autoFocus />
-          <div className="activity-edit-row">
-            <input aria-label="Time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="Time" />
-            <input aria-label="Place" value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value })} placeholder="Place" />
-          </div>
+          <input aria-label="Place" value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value })} placeholder="Place" />
           <textarea aria-label="Notes" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Add a note" />
           <div className="activity-edit-actions">
             <button type="button" className="ghost-pill" onClick={() => { setDraft(draftFrom(activity)); setEditing(false); }}>Cancel</button>
@@ -105,12 +101,10 @@ export default function ActivityCard({
             {activity.edited && <span className="edited-tag">Edited</span>}
           </span>
           {meta && <span className="activity-meta">{meta}</span>}
-          {selected && (activity.description || activity.cost || activity.duration) && (
+          {selected && (activity.description || activity.cost) && (
             <span className="activity-details">
               {activity.description && <span>{activity.description}</span>}
-              {(activity.cost || activity.duration) && (
-                <span className="activity-facts">{[activity.duration, activity.cost].filter(Boolean).join(" · ")}</span>
-              )}
+              {activity.cost && <span className="activity-facts">{activity.cost}</span>}
             </span>
           )}
         </button>

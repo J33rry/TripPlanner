@@ -5,6 +5,7 @@ import { buildPrompt, buildRefinePrompt } from "@/lib/prompt";
 import { DEFAULT_GROQ_MODEL } from "@/lib/constants";
 import { TRIP_JSON_SCHEMA } from "@/lib/tripJsonSchema";
 import { applyCandidates, areasForTrip, extractPlaces, fitCandidates, gatherCandidates, groundingEnabled } from "@/lib/placeCandidates";
+import { reorderTrip } from "@/lib/routeOrder";
 import { classifyRequest, GuardrailError, MAX_EXISTING_TRIP_CHARS, precheck, rejection } from "@/lib/guardrails";
 
 const groq = new Groq({
@@ -177,6 +178,11 @@ export async function POST(request) {
         { status: 422 }
       );
     }
+
+    // Days a refinement left as they were keep their order: it may be the traveller's own.
+    const legs = reorderTrip(validated.data, { previous: mode === "refine" ? existingTrip : null });
+    const km = (n) => n.toFixed(1);
+    console.info(`Route order: ${legs.map((leg) => `day ${leg.day} ${km(leg.beforeKm)} → ${km(leg.afterKm)} km`).join(", ")}`);
 
     return Response.json({ success: true, data: validated.data, grounding });
   } catch (err) {

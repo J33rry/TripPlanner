@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "704ee482-dd2b-4a8f-b45c-d77a287a3ef5",
+  "status": "current",
+  "command": "deliver",
+  "type": "sequence",
+  "input": "/Users/rajanti/all/TripPlanner/.archify/sequence-generate-request-20261006-224542/candidate.json",
+  "output": "/Users/rajanti/all/TripPlanner/.archify/sequence-generate-request-20261006-224542/generate-request.html",
+  "specification": {
+    "sha256": "57e9579e278bc770c3bd3ec2ac34fd79c8ea25b859b4a31b35703f66c1f7d11c",
+    "bytes": 8118
+  },
+  "artifact": {
+    "sha256": "c0bcce913a31ebb31a1fd9d8462ed44d537d29830c16cea0cde10b4dd987c6c1",
+    "bytes": 768558
+  }
+}

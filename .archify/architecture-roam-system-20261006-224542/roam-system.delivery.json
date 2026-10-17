@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "33d3c19a-f8c0-463c-b8ad-c624e3399f94",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/rajanti/all/TripPlanner/.archify/architecture-roam-system-20261006-224542/candidate.json",
+  "output": "/Users/rajanti/all/TripPlanner/.archify/architecture-roam-system-20261006-224542/roam-system.html",
+  "specification": {
+    "sha256": "f11ead571a89294581791d30a1d72bf14e994969b5160baf38b00ac53699faec",
+    "bytes": 9240
+  },
+  "artifact": {
+    "sha256": "72c20af8ae6237156833e0e13e1e66763b0ca44b2eefb696775e22512d9d85d7",
+    "bytes": 786018
+  }
+}

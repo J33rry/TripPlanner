@@ -35,6 +35,9 @@ export const TrashIcon = () => <svg {...base}><path d="M4 7h16M9 7V4.5h6V7M6.5 7
 export const SearchIcon = () => <svg {...base}><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>;
 export const CheckIcon =() => <svg {...base}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>;
 export const UserIcon = () => <svg {...base}><circle cx="12" cy="8" r="3.8" /><path d="M4.5 20c.8-3.6 3.8-5.6 7.5-5.6s6.7 2 7.5 5.6" /></svg>;
+export const UsersIcon = () => (
+  <svg {...base}><circle cx="9" cy="8.5" r="3.3" /><path d="M2.8 19.5c.7-3.2 3.2-5 6.2-5s5.5 1.8 6.2 5" /><path d="M15.5 5.4a3.3 3.3 0 0 1 0 6.2M17.5 14.8c1.9.6 3.2 2.2 3.7 4.7" /></svg>
+);
 export const MailIcon = () => <svg {...base}><rect x="3" y="5.5" width="18" height="13" rx="2.5" /><path d="m3.8 7 8.2 6 8.2-6" /></svg>;
 export const LockIcon = () => <svg {...base}><rect x="5" y="10.5" width="14" height="10" rx="2.5" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /><path d="M12 14.5v2" /></svg>;
 export const EyeIcon = () => <svg {...base}><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="3" /></svg>;

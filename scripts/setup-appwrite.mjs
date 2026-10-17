@@ -1,4 +1,4 @@
-// Creates the database and table Roam saves trips to. Safe to re-run.
+// Creates the database and tables Roam saves trips and expenses to. Safe to re-run.
 //
 //   APPWRITE_API_KEY=<key with databases.read/write, tables.read/write, columns.read/write> npm run setup:appwrite
 //
@@ -14,6 +14,7 @@ const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "https://cloud.app
 const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
 const databaseId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || "roam";
 const tableId = process.env.NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID || "roam_trips";
+const expensesTableId = process.env.NEXT_PUBLIC_APPWRITE_EXPENSES_TABLE_ID || "roam_expenses";
 const apiKey = process.env.APPWRITE_API_KEY;
 
 if (!projectId || !apiKey) {
@@ -34,13 +35,14 @@ async function ensure(label, create) {
 }
 
 await ensure(`database "${databaseId}"`, () => tables.create({ databaseId, name: "Roam" }));
-// Any signed-in user may create rows; each row is then readable/writable only by its owner.
+// Any signed-in user may create rows; each row is then readable/writable only by its owner,
+// or by the trip's team once the owner invites friends.
 await ensure(`table "${tableId}"`, () =>
   tables.createTable({ databaseId, tableId, name: "Roam trips", rowSecurity: true, permissions: [Permission.create(Role.users())] })
 );
 // The database may be shared with other apps; never add columns to a table Roam didn't make.
 const { columns } = await tables.getTable({ databaseId, tableId });
-const foreign = columns.map((column) => column.key).filter((key) => !["title", "data", "routes", "shareId"].includes(key));
+const foreign = columns.map((column) => column.key).filter((key) => !["title", "data", "routes", "shareId", "ownerId", "teamId", "inviteId", "updatedBy", "currency"].includes(key));
 if (foreign.length) {
   console.error(`✗ table "${tableId}" already exists with other columns (${foreign.join(", ")}) — it belongs to something else.`);
   console.error("  Set NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID to an unused ID and run this again.");
@@ -52,15 +54,67 @@ await ensure("column data", () => tables.createLongtextColumn({ databaseId, tabl
 await ensure("column routes", () => tables.createLongtextColumn({ databaseId, tableId, key: "routes", required: false }));
 // A trip's view-only link (/share/<shareId>); empty while the trip isn't shared.
 await ensure("column shareId", () => tables.createVarcharColumn({ databaseId, tableId, key: "shareId", size: 64, required: false }));
+// Who created the trip, and the Appwrite team of everyone who can edit it (empty until the first invite).
+await ensure("column ownerId", () => tables.createVarcharColumn({ databaseId, tableId, key: "ownerId", size: 36, required: false }));
+await ensure("column teamId", () => tables.createVarcharColumn({ databaseId, tableId, key: "teamId", size: 36, required: false }));
+// The trip's join link (/join/<inviteId>); empty while the owner isn't inviting anyone.
+await ensure("column inviteId", () => tables.createVarcharColumn({ databaseId, tableId, key: "inviteId", size: 64, required: false }));
+// Who saved last, so collaborators can be told who changed the trip.
+await ensure("column updatedBy", () => tables.createVarcharColumn({ databaseId, tableId, key: "updatedBy", size: 36, required: false }));
+
+// The currency (ISO code) every expense on the trip is in; empty means INR.
+await ensure("column currency", () => tables.createVarcharColumn({ databaseId, tableId, key: "currency", size: 3, required: false }));
+
 // A new column is usable only once Appwrite finishes building it.
-for (let tries = 0; ; tries++) {
-  const column = await tables.getColumn({ databaseId, tableId, key: "shareId" });
-  if (column.status === "available") break;
-  if (column.status === "failed" || tries >= 30) throw new Error(`column shareId is ${column.status}`);
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+async function waitForColumn(key, table = tableId) {
+  for (let tries = 0; ; tries++) {
+    const column = await tables.getColumn({ databaseId, tableId: table, key });
+    if (column.status === "available") return;
+    if (column.status === "failed" || tries >= 30) throw new Error(`column ${key} is ${column.status}`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
 }
-await ensure("index shareId", () =>
-  tables.createIndex({ databaseId, tableId, key: "shareId", type: TablesDBIndexType.Key, columns: ["shareId"] })
+for (const key of ["shareId", "inviteId"]) {
+  await waitForColumn(key);
+  await ensure(`index ${key}`, () =>
+    tables.createIndex({ databaseId, tableId, key, type: TablesDBIndexType.Key, columns: [key] })
+  );
+}
+
+// Shared expenses: one row per expense or repayment. Rows belong to the trip's
+// team (read/update/delete), so everyone on the trip sees and edits them.
+await ensure(`table "${expensesTableId}"`, () =>
+  tables.createTable({ databaseId, tableId: expensesTableId, name: "Roam expenses", rowSecurity: true, permissions: [Permission.create(Role.users())] })
+);
+const EXPENSE_COLUMNS = ["tripId", "kind", "description", "amount", "paidBy", "paidByName", "splitType", "splits", "category", "spentAt", "createdBy", "updatedBy"];
+const expenseTable = await tables.getTable({ databaseId, tableId: expensesTableId });
+const foreignExpense = expenseTable.columns.map((column) => column.key).filter((key) => !EXPENSE_COLUMNS.includes(key));
+if (foreignExpense.length) {
+  console.error(`✗ table "${expensesTableId}" already exists with other columns (${foreignExpense.join(", ")}) — it belongs to something else.`);
+  console.error("  Set NEXT_PUBLIC_APPWRITE_EXPENSES_TABLE_ID to an unused ID and run this again.");
+  process.exit(1);
+}
+const expenses = { databaseId, tableId: expensesTableId };
+await ensure("expense column tripId", () => tables.createVarcharColumn({ ...expenses, key: "tripId", size: 36, required: true }));
+await ensure("expense column kind", () => tables.createEnumColumn({ ...expenses, key: "kind", elements: ["expense", "settlement"], required: true }));
+await ensure("expense column description", () => tables.createVarcharColumn({ ...expenses, key: "description", size: 256, required: true }));
+// In the currency's minor unit (paise, cents), so shares always add up exactly.
+await ensure("expense column amount", () => tables.createIntegerColumn({ ...expenses, key: "amount", required: true, min: 1 }));
+await ensure("expense column paidBy", () => tables.createVarcharColumn({ ...expenses, key: "paidBy", size: 36, required: true }));
+// Names are copied in so an expense still reads right after someone leaves the trip.
+await ensure("expense column paidByName", () => tables.createVarcharColumn({ ...expenses, key: "paidByName", size: 128, required: false }));
+await ensure("expense column splitType", () =>
+  tables.createEnumColumn({ ...expenses, key: "splitType", elements: ["equal", "exact", "percent", "shares"], required: true })
+);
+// JSON [{ userId, name, value }]; see lib/splits.js for what `value` means per split type.
+await ensure("expense column splits", () => tables.createLongtextColumn({ ...expenses, key: "splits", required: true }));
+await ensure("expense column category", () => tables.createVarcharColumn({ ...expenses, key: "category", size: 32, required: false }));
+await ensure("expense column spentAt", () => tables.createDatetimeColumn({ ...expenses, key: "spentAt", required: true }));
+await ensure("expense column createdBy", () => tables.createVarcharColumn({ ...expenses, key: "createdBy", size: 36, required: false }));
+await ensure("expense column updatedBy", () => tables.createVarcharColumn({ ...expenses, key: "updatedBy", size: 36, required: false }));
+await waitForColumn("tripId", expensesTableId);
+await ensure("expense index tripId", () =>
+  tables.createIndex({ ...expenses, key: "tripId", type: TablesDBIndexType.Key, columns: ["tripId"] })
 );
 
 console.log("Appwrite is ready for Roam.");

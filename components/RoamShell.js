@@ -5,12 +5,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import DestinationGlobe from "./DestinationGlobe";
 import ErrorBanner from "./ErrorBanner";
+import ExpensesPanel from "./ExpensesPanel";
 import IntroSplash from "./IntroSplash";
 import ItineraryView from "./ItineraryView";
 import RefineInput from "./RefineInput";
 import TripMap from "./TripMap";
 import Wordmark from "./Wordmark";
 import AccountMenu from "./AccountMenu";
+import MembersMenu from "./MembersMenu";
 import ShareMenu from "./ShareMenu";
 import ThemeToggle from "./ThemeToggle";
 import { BookmarkIcon, CheckIcon, EyeIcon, PlusIcon } from "./icons";
@@ -18,13 +20,39 @@ import { useAuth } from "@/hooks/useAuth";
 import { routesFor, useDayRoutes } from "@/hooks/useDayRoutes";
 import { useGenerateTrip } from "@/hooks/useGenerateTrip";
 import { usePlaceImages } from "@/hooks/usePlaceImages";
+import { useTripExpenses } from "@/hooks/useTripExpenses";
+import { useTripMembers } from "@/hooks/useTripMembers";
 import { useTripState } from "@/hooks/useTripState";
+import { deleteExpense, listExpenses, saveExpense } from "@/lib/expenseStore";
+import { formatMoney, netBalances } from "@/lib/splits";
 import { DESTINATIONS, FLIGHT_ROUTES } from "@/lib/destinations";
 import { distanceKm, getTripCenter, getTripStops } from "@/lib/geo";
 import { dayCount, destinationLabel, placeTitle } from "@/lib/tripDisplay";
-import { deleteTrip, importLegacyTrips, listTrips, saveTrip, saveTripRoutes, shareTrip, unshareTrip } from "@/lib/tripStore";
+import {
+  createInviteLink,
+  deleteTrip,
+  enableCollaboration,
+  fetchTrip,
+  importLegacyTrips,
+  leaveTrip,
+  listMembers,
+  listTrips,
+  ownsTrip,
+  removeMember,
+  revokeInviteLink,
+  saveTrip,
+  saveTripRoutes,
+  setTripCurrency,
+  shareTrip,
+  unshareTrip,
+  watchTrip,
+} from "@/lib/tripStore";
 
 const MAP_READY_TIMEOUT_MS = 3500;
+// Saved trips save themselves this long after the last edit (longer while saving keeps failing).
+const AUTOSAVE_MS = 1200;
+const AUTOSAVE_RETRY_MS = 15000;
+const NOTICE_MS = 3500;
 const DESKTOP_MIN_WIDTH = 900;
 const LABEL_CLASH_KM = 1200;
 
@@ -143,6 +171,7 @@ export default function RoamShell({ children }) {
   const [sharedTrip, setSharedTrip] = useState(null);
   const [openShareId, setOpenShareId] = useState(null);
   const viewOnly = openShareId != null;
+  const openSaved = useMemo(() => savedTrips.find((item) => item.id === openSavedId) || null, [savedTrips, openSavedId]);
   const [prompt, setPrompt] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [activeDayId, setActiveDayId] = useState(null);
@@ -156,10 +185,44 @@ export default function RoamShell({ children }) {
   const arrivalRef = useRef({ globe: false, map: false, timer: null });
   const panelRef = useRef(null);
   const saveTimer = useRef(null);
+  // Live sync: "idle" | "saving" | "error"; a remote change that clashes with unsaved edits; "Updated by …".
+  const [autosave, setAutosave] = useState("idle");
+  const [conflict, setConflict] = useState(null);
+  const [notice, setNotice] = useState("");
+  const noticeTimer = useRef(null);
+  // JSON of the trip an autosave is writing, so its realtime echo isn't mistaken for someone else's change.
+  const inFlightRef = useRef(null);
+  const membersCache = useRef(new Map());
+  const syncRef = useRef({ openSaved: null, tripJson: "", baseJson: "", dirty: false });
+
+  const tripJson = useMemo(() => (trip ? JSON.stringify(trip) : ""), [trip]);
+  const baseJson = useMemo(() => (openSaved ? JSON.stringify(openSaved.data) : ""), [openSaved]);
+  // Saved trips autosave; a trip that was never saved (or a view-only one) doesn't.
+  const syncing = Boolean(openSaved && userId && !viewOnly && trip);
+  const dirty = syncing && tripJson !== baseJson;
+
+  // Collaboration data for the open trip: who's on it and what they've spent.
+  const [panelTab, setPanelTab] = useState("itinerary");
+  const tripMembers = useTripMembers(syncing ? openSaved.teamId : null);
+  const tripExpenses = useTripExpenses(syncing && openSaved.teamId ? openSaved.id : null);
+  const balances = useMemo(() => netBalances(tripExpenses.expenses || []), [tripExpenses.expenses]);
+  const currency = openSaved?.currency;
+  // Members' names, with the account's own name for the user (membership privacy may hide names).
+  const people = useMemo(() => {
+    const me = { userId, name: auth.user?.name || auth.user?.email || "You" };
+    if (!tripMembers.members) return userId ? [me] : [];
+    return tripMembers.members.map((member) => (member.userId === userId ? { ...me, name: auth.user?.name || member.name } : member));
+  }, [tripMembers.members, userId, auth.user]);
+  /** `{ owes, amount }` while `memberId` has an unsettled balance on the open trip, else null. */
+  const owing = (memberId) => {
+    const amount = balances[memberId];
+    return amount ? { owes: amount < 0, amount: formatMoney(Math.abs(amount), currency) } : null;
+  };
 
   useEffect(() => {
     viewRef.current = view;
     tripRef.current = trip;
+    syncRef.current = { openSaved, tripJson, baseJson, dirty };
   });
 
   const revealIfReady = useCallback(() => {
@@ -172,7 +235,9 @@ export default function RoamShell({ children }) {
 
   const openTrip = useCallback((data, savedId = null, shareId = null) => {
     clearTimeout(arrivalRef.current.timer);
+    setConflict(null);
     setOpenSavedId(savedId);
+    setPanelTab("itinerary");
     setOpenShareId(shareId);
     arrivalRef.current = { globe: false, map: false, timer: null };
     setTrip(data);
@@ -213,6 +278,7 @@ export default function RoamShell({ children }) {
     return () => {
       window.cancelAnimationFrame(frame);
       clearTimeout(saveTimer.current);
+      clearTimeout(noticeTimer.current);
       clearTimeout(arrival.timer);
     };
   }, []);
@@ -286,6 +352,118 @@ export default function RoamShell({ children }) {
 
   const rememberSaved = (entry) => setSavedTrips((list) => [entry, ...list.filter((item) => item.id !== entry.id)]);
 
+  const flashNotice = (message) => {
+    setNotice(message);
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(""), NOTICE_MS);
+  };
+
+  /** Who saved `entry` last, by name, for "Updated by …". */
+  const editorName = async (entry) => {
+    if (!entry.updatedBy) return "Someone";
+    if (entry.updatedBy === userId) return "You, in another window,";
+    if (!entry.teamId) return "Someone";
+    let members = membersCache.current.get(entry.teamId);
+    if (!members) {
+      members = listMembers(entry.teamId).catch(() => []);
+      membersCache.current.set(entry.teamId, members);
+    }
+    const name = (await members).find((member) => member.userId === entry.updatedBy)?.name;
+    // Someone who joined since the list was fetched: look again next time.
+    if (!name) membersCache.current.delete(entry.teamId);
+    return name || "Someone";
+  };
+
+  /** The trip was deleted, or the user was taken off it: drop it without trying to save. */
+  const dropTrip = (id) => {
+    setSavedTrips((list) => list.filter((item) => item.id !== id));
+    if (syncRef.current.openSaved?.id !== id) return;
+    syncRef.current = { ...syncRef.current, dirty: false };
+    closeTripRef.current();
+  };
+
+  /**
+   * Saves `snapshot` over `base` unless someone else changed the trip since
+   * `base` was loaded — then it asks first (`conflict`). `quiet` is for a last
+   * save on the way out: no prompts, and nothing is written over a newer version.
+   */
+  const autosaveTrip = async (snapshot, base, { quiet = false } = {}) => {
+    inFlightRef.current = JSON.stringify(snapshot);
+    if (!quiet) setAutosave("saving");
+    try {
+      const remote = await fetchTrip(base.id);
+      if (remote && remote.savedAt !== base.savedAt && JSON.stringify(remote.data) !== JSON.stringify(base.data)) {
+        if (!quiet) {
+          setConflict({ entry: remote, by: await editorName(remote) });
+          setAutosave("idle");
+        }
+        return;
+      }
+      const entry = await saveTrip(userId, snapshot, base.id, routesFor(snapshot, (remote || base).routes));
+      rememberSaved(entry);
+      if (!quiet) setAutosave("idle");
+    } catch (saveError) {
+      console.error("Couldn’t autosave trip", saveError);
+      if (quiet) return;
+      // 404: deleted, or no longer shared with this user (rows they can't read look missing).
+      if (saveError?.code === 404 || saveError?.code === 401) {
+        setAutosave("idle");
+        dropTrip(base.id);
+      } else {
+        setAutosave("error");
+      }
+    } finally {
+      inFlightRef.current = null;
+    }
+  };
+
+  /** Someone saved the open trip: show it, unless that would throw away edits that aren't saved yet. */
+  const handleRemoteUpdate = async (entry) => {
+    const { openSaved: base, tripJson: localJson, baseJson: knownJson } = syncRef.current;
+    if (!base || entry.id !== base.id || entry.savedAt <= base.savedAt) return;
+    const remoteJson = JSON.stringify(entry.data);
+    // This window's own save coming back, only the routes changed, or it already matches: just note the new version.
+    if (remoteJson === inFlightRef.current || remoteJson === knownJson || remoteJson === localJson) {
+      rememberSaved(entry);
+      return;
+    }
+    const by = await editorName(entry);
+    if (syncRef.current.dirty || inFlightRef.current) {
+      setConflict({ entry, by });
+      return;
+    }
+    rememberSaved(entry);
+    setTrip(entry.data);
+    flashNotice(`${by} updated the trip`);
+  };
+
+  /** Throws away local edits for the newest saved version. */
+  const loadTheirs = async () => {
+    const pending = conflict;
+    setConflict(null);
+    setAutosave("saving"); // holds autosave off until their version is on screen
+    const latest = await fetchTrip(pending.entry.id).catch(() => pending.entry);
+    const entry = latest || pending.entry;
+    rememberSaved(entry);
+    setTrip(entry.data);
+    setAutosave("idle");
+  };
+
+  /** Saves what's on screen over the other person's change. */
+  const keepMine = async () => {
+    const base = conflict.entry;
+    setConflict(null);
+    setAutosave("saving");
+    try {
+      rememberSaved(await saveTrip(userId, tripRef.current, base.id, routesFor(tripRef.current, base.routes)));
+      setAutosave("idle");
+    } catch (saveError) {
+      console.error("Couldn’t save trip", saveError);
+      rememberSaved(base);
+      setAutosave("error");
+    }
+  };
+
   /** Saves the open trip and resolves to its saved entry; a guest is sent to log in first (null). */
   const persistTrip = async () => {
     if (auth.status !== "user") {
@@ -295,9 +473,11 @@ export default function RoamShell({ children }) {
       router.push("/login");
       return null;
     }
+    const existing = savedTrips.find((item) => item.data?.tripId === trip.tripId);
+    // A saved trip saves itself; writing it again here could overwrite a friend's change.
+    if (existing && existing.id === openSavedId && !syncRef.current.dirty) return existing;
     setSaving(true);
     try {
-      const existing = savedTrips.find((item) => item.data?.tripId === trip.tripId);
       const entry = await saveTrip(userId, trip, existing?.id, routesFor(trip, existing?.routes));
       rememberSaved(entry);
       if (entry.id !== routeTripId) {
@@ -333,6 +513,62 @@ export default function RoamShell({ children }) {
     if (openSavedId != null) rememberSaved(await unshareTrip(openSavedId));
   };
 
+  /** The owner's first "Invite": saves the trip, hands it to a team, and gives it a join link. */
+  const handleInvite = async () => {
+    const entry = await persistTrip();
+    if (!entry) return null;
+    const withTeam = await enableCollaboration(entry, userId);
+    const invited = withTeam.inviteId ? withTeam : await createInviteLink(withTeam.id);
+    rememberSaved(invited);
+    return invited;
+  };
+
+  const handleNewInviteLink = async () => {
+    if (!openSaved) return;
+    const withTeam = openSaved.teamId ? openSaved : await enableCollaboration(openSaved, userId);
+    rememberSaved(await createInviteLink(withTeam.id));
+  };
+
+  const handleStopInviting = async () => {
+    if (openSavedId != null) rememberSaved(await revokeInviteLink(openSavedId));
+  };
+
+  const handleRemoveMember = async (membershipId) => {
+    await removeMember(openSaved.teamId, membershipId);
+    tripMembers.forget(membershipId);
+  };
+
+  /** Adds or edits an expense; a trip nobody's been invited to yet gets its team first. */
+  const handleSaveExpense = async (expense, rowId) => {
+    let saved = openSaved;
+    if (!saved.teamId) {
+      saved = await enableCollaboration(saved, userId);
+      rememberSaved(saved);
+    }
+    tripExpenses.applySaved(await saveExpense({ tripId: saved.id, teamId: saved.teamId, userId, expense, rowId }));
+  };
+
+  const handleDeleteExpense = async (expenseId) => {
+    await deleteExpense(expenseId);
+    tripExpenses.applyDeleted(expenseId);
+  };
+
+  const handleChangeCurrency = async (code) => rememberSaved(await setTripCurrency(openSaved.id, code));
+
+  const handleLeaveTrip = async () => {
+    const left = openSaved;
+    await leaveTrip(left.teamId, userId);
+    dropTrip(left.id);
+    router.push("/trips");
+  };
+
+  /** Reloads the saved list now (a trip someone just joined has to be in it before it can open). */
+  const refreshTrips = async () => {
+    if (!userId) return;
+    setSavedTrips(await listTrips());
+    setTripsOwner(userId);
+  };
+
   /** After any sign-in: save the trip that sent them here, else go where they were headed. */
   const completeAuth = async (account, next) => {
     const pending = readPendingTrip();
@@ -360,10 +596,32 @@ export default function RoamShell({ children }) {
     if (pending) openTrip(pending);
   };
 
-  const deleteSaved = (id) => {
+  /**
+   * Deletes a trip the user owns; on someone else's trip it means leaving it,
+   * which waits until the user's share of its expenses is settled.
+   */
+  const deleteSaved = async (id) => {
+    const saved = savedTrips.find((item) => item.id === id);
+    if (!saved) return;
+    if (!ownsTrip(saved, userId)) {
+      let owed;
+      try {
+        owed = netBalances(await listExpenses(id))[userId];
+      } catch (checkError) {
+        console.error("Couldn’t check trip balance", checkError);
+        window.alert("Couldn’t check what you owe on this trip. Check your connection and try again.");
+        return;
+      }
+      if (owed) {
+        const amount = formatMoney(Math.abs(owed), saved.currency);
+        window.alert(`You ${owed < 0 ? "still owe" : "are still owed"} ${amount} on “${saved.title}”. Settle up in its Expenses tab before leaving.`);
+        return;
+      }
+    }
     setSavedTrips((list) => list.filter((item) => item.id !== id));
-    deleteTrip(id).catch((deleteError) => {
-      console.error("Couldn’t delete trip", deleteError);
+    const action = ownsTrip(saved, userId) ? deleteTrip(id, saved.teamId) : leaveTrip(saved.teamId, userId);
+    action.catch((deleteError) => {
+      console.error("Couldn’t remove trip", deleteError);
       setTripsReload((n) => n + 1);
     });
   };
@@ -376,6 +634,12 @@ export default function RoamShell({ children }) {
   };
 
   const closeTrip = () => {
+    // Edits made in the last moment before leaving the trip still get saved.
+    const { dirty: unsaved, openSaved: leaving } = syncRef.current;
+    if (unsaved && leaving && !conflict && tripRef.current) autosaveRef.current(tripRef.current, leaving, { quiet: true });
+    setConflict(null);
+    setNotice("");
+    setAutosave("idle");
     cancel();
     clearError();
     clearTimeout(arrivalRef.current.timer);
@@ -393,9 +657,44 @@ export default function RoamShell({ children }) {
   };
 
   const closeTripRef = useRef(closeTrip);
+  const autosaveRef = useRef(autosaveTrip);
+  const remoteUpdateRef = useRef(handleRemoteUpdate);
+  const dropTripRef = useRef(dropTrip);
   useEffect(() => {
     closeTripRef.current = closeTrip;
+    autosaveRef.current = autosaveTrip;
+    remoteUpdateRef.current = handleRemoteUpdate;
+    dropTripRef.current = dropTrip;
   });
+
+  // Autosave: shortly after the last edit, then again with a longer wait while it keeps failing.
+  useEffect(() => {
+    if (!dirty || conflict || autosave === "saving") return;
+    const timer = setTimeout(
+      () => autosaveRef.current(tripRef.current, syncRef.current.openSaved),
+      autosave === "error" ? AUTOSAVE_RETRY_MS : AUTOSAVE_MS
+    );
+    return () => clearTimeout(timer);
+  }, [dirty, tripJson, conflict, autosave]);
+
+  // Live updates from everyone else on the trip.
+  const watchedId = syncing ? openSaved.id : null;
+  useEffect(() => {
+    if (!watchedId) return;
+    return watchTrip(watchedId, {
+      onUpdate: (entry) => remoteUpdateRef.current(entry),
+      onDelete: () => dropTripRef.current(watchedId),
+    });
+  }, [watchedId]);
+
+  // Closing the tab mid-save would lose the last edits; let the browser ask first.
+  const unsavedWork = dirty || autosave === "saving";
+  useEffect(() => {
+    if (!unsavedWork) return;
+    const warn = (event) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsavedWork]);
   const introDone = intro.phase === "done";
   useEffect(() => {
     if (!routeTripId) {
@@ -433,8 +732,10 @@ export default function RoamShell({ children }) {
   const stops = useMemo(() => getTripStops(trip), [trip]);
   const stopNumbers = useMemo(() => Object.fromEntries(stops.map((stop) => [stop.id, stop.number])), [stops]);
   const center = useMemo(() => getTripCenter(trip), [trip]);
-  const openSaved = useMemo(() => savedTrips.find((item) => item.id === openSavedId) || null, [savedTrips, openSavedId]);
   const dayRoutes = useDayRoutes(trip, viewOnly ? sharedTrip?.routes : openSaved?.routes);
+  // An unsaved trip is the user's own; a saved one may belong to a friend who invited them.
+  const isOwner = !openSaved || ownsTrip(openSaved, userId);
+  const showExpenses = syncing && panelTab === "expenses";
 
   // Legs that finish loading after the trip was saved are stored with it too,
   // once nothing is still loading. Only the saved version's legs count, so
@@ -504,6 +805,7 @@ export default function RoamShell({ children }) {
     missingTrip: Boolean(routeTripId) && savedLoaded && !savedTrips.some((item) => String(item.id) === routeTripId),
     focusSavedTrip: (savedId) => setGlobeFocusId(savedId == null ? null : markerIdBySaved[savedId]),
     showSharedTrip: setSharedTrip,
+    refreshTrips,
   };
 
   const navLink = (href, label) => (
@@ -551,17 +853,48 @@ export default function RoamShell({ children }) {
           )}
           {view === "trip" && trip && !viewOnly && (
             <div className="header-actions">
-              <button
-                type="button"
-                className="outline-pill"
-                onClick={handleSave}
-                disabled={saving}
-                title={auth.status === "user" ? undefined : "Log in to save this trip"}
-              >
-                {saveMessage === "Saved" ? <CheckIcon /> : <BookmarkIcon />}
-                <span>{saveMessage || (saving ? "Saving…" : "Save trip")}</span>
-              </button>
-              <ShareMenu key={trip.tripId} shareId={openSaved?.shareId} onShare={handleShare} onStopSharing={handleStopSharing} />
+              {syncing ? (
+                <button
+                  type="button"
+                  className={`outline-pill sync-status ${autosave === "error" ? "is-error" : ""}`}
+                  onClick={() => setAutosave("idle")}
+                  disabled={autosave !== "error"}
+                  title={autosave === "error" ? "Try saving again" : "Changes save automatically"}
+                  aria-live="polite"
+                >
+                  {autosave === "error" ? <BookmarkIcon /> : dirty || autosave === "saving" || conflict ? <span className="sync-dot" aria-hidden="true" /> : <CheckIcon />}
+                  <span>
+                    {autosave === "error" ? "Couldn’t save · Retry" : conflict ? "Not saved" : dirty || autosave === "saving" ? "Saving…" : "Saved"}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="outline-pill"
+                  onClick={handleSave}
+                  disabled={saving}
+                  title={auth.status === "user" ? undefined : "Log in to save this trip"}
+                >
+                  {saveMessage === "Saved" ? <CheckIcon /> : <BookmarkIcon />}
+                  <span>{saveMessage || (saving ? "Saving…" : "Save trip")}</span>
+                </button>
+              )}
+              <MembersMenu
+                key={`members-${trip.tripId}`}
+                saved={openSaved}
+                isOwner={isOwner}
+                userId={userId}
+                onInvite={handleInvite}
+                onNewLink={handleNewInviteLink}
+                onStopInviting={handleStopInviting}
+                members={tripMembers.members}
+                membersError={tripMembers.error}
+                owing={owing}
+                onReloadMembers={tripMembers.reload}
+                onRemove={handleRemoveMember}
+                onLeave={handleLeaveTrip}
+              />
+              {isOwner && <ShareMenu key={trip.tripId} shareId={openSaved?.shareId} onShare={handleShare} onStopSharing={handleStopSharing} />}
               <button type="button" className="outline-pill header-new-trip" onClick={startNewTrip}>
                 <PlusIcon /><span>New trip</span>
               </button>
@@ -610,6 +943,7 @@ export default function RoamShell({ children }) {
 
           {showMap && (
             <aside ref={panelRef} className={`trip-panel ${view === "trip" ? "is-open" : ""}`} aria-label="Itinerary">
+              {notice && <div className="sync-toast" role="status">{notice}</div>}
               <div className="panel-scroll">
                 <header className="trip-hero">
                   <div className="hero-image" style={images[placeTitle(trip)] ? { backgroundImage: `url("${images[placeTitle(trip)]}")` } : undefined} aria-hidden="true" />
@@ -621,37 +955,95 @@ export default function RoamShell({ children }) {
                     </p>
                   </div>
                 </header>
-                {trip.summary && <p className="trip-summary">{trip.summary}</p>}
+                {syncing && (
+                  <div className="panel-tabs" role="tablist" aria-label="Trip sections">
+                    {[["itinerary", "Itinerary"], ["expenses", "Expenses"]].map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        role="tab"
+                        id={`tab-${key}`}
+                        aria-selected={panelTab === key}
+                        aria-controls="trip-tab-panel"
+                        onClick={() => {
+                          setPanelTab(key);
+                          if (key === "expenses") tripMembers.reload();
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {trip.summary && !showExpenses && <p className="trip-summary">{trip.summary}</p>}
                 {!viewOnly && <ErrorBanner error={error} onRetry={retryLastRequest} onDismiss={clearError} />}
-                <div className={`itinerary-wrap ${loading ? "is-refreshing" : ""}`} aria-busy={loading}>
-                  <ItineraryView
-                    trip={trip}
-                    readOnly={viewOnly}
-                    images={images}
-                    stopNumbers={stopNumbers}
-                    activeDayId={activeDayId}
-                    hoveredStopId={hoveredStopId}
-                    selectedStopId={selectedStopId}
-                    onSelectDay={setActiveDayId}
-                    onHoverStop={setHoveredStopId}
-                    onSelectStop={selectStop}
-                    onToggleActivity={toggleActivity}
-                    onDeleteActivity={deleteActivity}
-                    onDeleteDay={(dayId) => { if (activeDayId === dayId) setActiveDayId(null); deleteDay(dayId); }}
-                    onEditActivity={editActivity}
-                    onReorderActivities={reorderActivities}
-                    onReorderDays={reorderDays}
-                    onTogglePackingItem={togglePackingItem}
-                  />
-                </div>
+                {conflict && (
+                  <div className="error-banner is-notice sync-conflict" role="alert">
+                    <div className="error-body">
+                      <strong>{conflict.by} changed this trip while you were editing.</strong>
+                      <p>Load their version, or keep yours and replace their changes.</p>
+                    </div>
+                    <div className="error-actions">
+                      <button type="button" className="dark-pill small" onClick={loadTheirs}>Load theirs</button>
+                      <button type="button" className="ghost-pill" onClick={keepMine}>Keep mine</button>
+                    </div>
+                  </div>
+                )}
+                {showExpenses ? (
+                  <div id="trip-tab-panel" role="tabpanel" aria-labelledby="tab-expenses">
+                    <ExpensesPanel
+                      expenses={tripExpenses.expenses}
+                      error={tripExpenses.error}
+                      onRetry={tripExpenses.reload}
+                      people={people}
+                      me={userId}
+                      currency={currency}
+                      canChangeCurrency={isOwner}
+                      onChangeCurrency={handleChangeCurrency}
+                      budget={trip.totalBudgetEstimate}
+                      onSave={handleSaveExpense}
+                      onDelete={handleDeleteExpense}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    id={syncing ? "trip-tab-panel" : undefined}
+                    role={syncing ? "tabpanel" : undefined}
+                    aria-labelledby={syncing ? "tab-itinerary" : undefined}
+                    className={`itinerary-wrap ${loading ? "is-refreshing" : ""}`}
+                    aria-busy={loading}
+                  >
+                    <ItineraryView
+                      trip={trip}
+                      readOnly={viewOnly}
+                      images={images}
+                      stopNumbers={stopNumbers}
+                      activeDayId={activeDayId}
+                      hoveredStopId={hoveredStopId}
+                      selectedStopId={selectedStopId}
+                      onSelectDay={setActiveDayId}
+                      onHoverStop={setHoveredStopId}
+                      onSelectStop={selectStop}
+                      onToggleActivity={toggleActivity}
+                      onDeleteActivity={deleteActivity}
+                      onDeleteDay={(dayId) => { if (activeDayId === dayId) setActiveDayId(null); deleteDay(dayId); }}
+                      onEditActivity={editActivity}
+                      onReorderActivities={reorderActivities}
+                      onReorderDays={reorderDays}
+                      onTogglePackingItem={togglePackingItem}
+                    />
+                  </div>
+                )}
               </div>
               <div className="panel-footer">
                 {viewOnly ? (
                   <p className="view-only-note"><EyeIcon /> Shared with you — view only</p>
-                ) : (
+                ) : showExpenses ? null : (
                   <RefineInput onRefine={handleRefine} loading={loading} error={error} />
                 )}
-                <p className="panel-disclaimer">AI suggestions — check places, hours and prices before you go.</p>
+                <p className="panel-disclaimer">
+                  {showExpenses ? "Everyone on the trip can add, edit and delete expenses." : "AI suggestions — check places, hours and prices before you go."}
+                </p>
               </div>
             </aside>
           )}

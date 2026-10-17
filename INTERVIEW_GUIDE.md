@@ -226,7 +226,7 @@ Constants: `EXTRACTION_MODEL = gpt-oss-20b`, 5 s budget, at most 3 areas, radius
 - **Used by:** `useAuth`, `tripStore`, `sharedTrips` (config only).
 
 ### `lib/tripStore.js`: saved trips CRUD (browser SDK, as the logged-in user)
-A row holds `{title, data: JSON string of the trip, routes: JSON string, shareId}`.
+A row holds `{title, data: JSON string of the trip, routes: JSON string, shareId, ownerId, teamId, inviteId, updatedBy}`.
 - `fromRow(row)`: parses a row into `{id, title, savedAt, data, routes, shareId}`. Returns null if it's corrupt.
 - `parseRoutes(json)`: safe JSON parse.
 - `compactRoutes(routes)`: rounds coordinates to 5 decimals (about 1 m), which roughly **halves storage**.
@@ -235,7 +235,13 @@ A row holds `{title, data: JSON string of the trip, routes: JSON string, shareId
 - `saveTripRoutes(rowId, routes)`: stores routes that finished loading after the save.
 - `newShareId()`: **24 cryptographically random bytes** (`crypto.getRandomValues`) as base64url, so it can't be guessed.
 - `shareUrl(id)`, `shareTrip(rowId)` (sets shareId), `unshareTrip(rowId)` (sets null, which revokes the link).
-- `deleteTrip(rowId)`.
+- `deleteTrip(rowId, teamId)`: owner only; deletes the trip's team too.
+- `ownsTrip(saved, userId)`: true when `ownerId` is the user, or missing (old rows only their owner could read).
+- `enableCollaboration(saved, userId)`: creates an Appwrite **team** for the trip (the creator gets `owner`) and switches the row's permissions to read and update for `Role.team(teamId)` and delete for `Role.team(teamId, "owner")`. `listTrips()` doesn't change: row permissions alone decide which trips each person sees.
+- `createInviteLink(rowId)` / `revokeInviteLink(rowId)` / `inviteUrl(id)`: the `/join/<inviteId>` link, made the same way as share IDs. A new link replaces the old one.
+- `fetchTrip(rowId)`: re-reads one row (the autosave conflict check).
+- `watchTrip(rowId, { onUpdate, onDelete })`: subscribes to `Channel.tablesdb(db).table(trips).row(id)` with the `Realtime` service and returns an unsubscribe function.
+- `listMembers(teamId)`: asks `/api/trips/members` (see `lib/collab.js`). `removeMember(teamId, membershipId)` and `leaveTrip(teamId, userId)` wrap `teams.deleteMembership`.
 - `importLegacyTrips(userId)`: migrates old localStorage trips into the account with `Promise.allSettled`. Failed ones stay in localStorage.
 - **Used by:** `RoamShell`, `ShareMenu` (`shareUrl`), `sharedTrips` (`fromRow`).
 
@@ -246,6 +252,25 @@ A row holds `{title, data: JSON string of the trip, routes: JSON string, shareId
 - `getSharedTrip(shareId)`: wrapped in React `cache()` (deduped within one request, because `generateMetadata` and the page both call it). Queries `Query.equal("shareId", ...)` and returns **only the display fields**, never the owner's row ID or permissions.
 - **Why not make rows public?** Anyone could then list every shared trip. The private-row-plus-server-key design keeps links unguessable and revocable.
 - **Used by:** `app/share/[shareId]/page.js`.
+
+### `lib/collab.js` (**server-only**) + `app/api/trips/join/route.js`
+- Only a team owner can add members from the browser, so joining runs on the server with `APPWRITE_COLLAB_API_KEY` (scopes: `rows.read`, `teams.read`, `teams.write`).
+- `getInvite(inviteId)`: used by `app/join/[inviteId]/page.js`. Returns only the title, the trip data for the summary line, the owner's name and how many people are on it.
+- `joinTrip(inviteId, jwt)`: the browser sends an `account.createJWT()` token. The server checks it with `new Client().setJWT(jwt)` and `account.get()`, and requires a verified email. It finds the row by `inviteId` and calls `teams.createMembership({ userId, roles: ["editor"] })`. With a server key that membership is accepted at once, and a 409 response means the person is already on the trip.
+- `listTripMembers(teamId, jwt)` (behind `app/api/trips/members/route.js`): a member listing their own team from the browser gets blank IDs and names for everyone else, so the client's `listMembers` asks the server instead. It checks the caller is a confirmed member and returns `{ membershipId, userId, name, owner }`, never emails. `sessionJwt()` in `lib/appwrite.js` reuses one JWT for 10 minutes, because creating them is rate limited.
+- **Known limit:** editors have `update` permission on the row, so a malicious editor could change its permissions. Only "delete" and "manage people" are enforced by Appwrite; the rest is limited in the UI.
+
+### `lib/splits.js`: Splitwise maths (pure, unit-tested in `lib/splits.test.js`)
+- Money is **integers in minor units** (paise). `minorDigits(currency)` uses `Intl.NumberFormat`, so JPY has 0 digits. `toMinor` / `fromMinor` / `formatMoney` convert.
+- `computeShares(amount, splitType, splits)`: `equal`, `exact` (minor amounts that must add up), `percent` (must total 100) or `shares` (weights). Uses **largest-remainder rounding**: everyone gets the floor of their exact share and the leftover paise go to the biggest fractions, so ₹100 three ways is 33.34 / 33.33 / 33.33 and the total is always exact.
+- `netBalances(expenses)`: paid minus owed for each person. A **settlement** is stored as "A paid an expense owed entirely by B", so the same sum handles repayments.
+- `simplifyDebts(net)`: greedy, biggest debtor pays biggest creditor, giving at most n−1 payments. This isn't always the true minimum (that problem is NP-hard), but it's what Splitwise-style apps do.
+- `expenseSchema` (Zod) runs `computeShares` in a `superRefine`, so a split that doesn't add up never reaches the database.
+
+### `lib/expenseStore.js` + `hooks/useTripExpenses.js` + `hooks/useTripMembers.js`
+- One row per expense in `roam_expenses`, with permissions for `Role.team(teamId)`. `listExpenses` pages with `Query.cursorAfter`, and `watchExpenses` subscribes to the table's rows filtered by `tripId`.
+- `useTripExpenses(tripId)` keeps the list live, with `applySaved` / `applyDeleted` so your own changes show before their realtime echo arrives. `useTripMembers(teamId)` is shared by the People menu and the expense form.
+- UI: `ExpensesPanel` (summary, balances, settle-up suggestions, list grouped by day), `ExpenseForm`, `SettleUpDialog`, all inside `Sheet`, which uses a portal because the trip panel's `transform` would trap a fixed overlay.
 
 ### `lib/tripDisplay.js`
 `placeTitle` (landmark or name, used as the Wikipedia photo title), `destinationLabel` ("Lisbon, Portugal"), `dayCount` ("3 days"), `savedMeta` ("Oct 2026 · 3 days").
@@ -450,6 +475,16 @@ Functions:
 
 ## 8. Appwrite backend pieces
 
+### Data model: tables, teams and keys
+- **`roam_trips`**: one row per trip. `data` is the whole itinerary as JSON, `routes` holds the map legs, plus `shareId`, `ownerId`, `teamId`, `inviteId`, `updatedBy` and `currency`. Rows start private to the owner (`Role.user`). After the first invite or expense they belong to the trip's **team**: read and update for `team:<id>`, delete for `team:<id>/owner`.
+- **`roam_expenses`**: one row per expense or repayment (`tripId`, `amount` in minor units, `paidBy`, `splitType`, `splits` JSON and so on), with read, update and delete for `team:<id>`.
+- **Teams**: one per trip. The owner gets the `owner` role and invited friends get `editor`. Teams make permissions simple: adding someone to the team gives them the trip and all its expenses at once.
+- **Server keys**, each with the fewest scopes it needs:
+  - `APPWRITE_SHARE_API_KEY` (`rows.read`): view-only `/share` pages.
+  - `APPWRITE_COLLAB_API_KEY` (`rows.read`, `teams.read`, `teams.write`): joining from `/join` links and listing a trip's members.
+  - `APPWRITE_API_KEY`: setup and deploy scripts only, never used at runtime.
+- **Realtime**: the open trip's row and its expense rows, so edits and spending show up for everyone live.
+
 ### `appwrite/functions/onboarding-email/src/main.js`
 A serverless function on **Appwrite**, triggered by the event `users.*.sessions.*.create` (every sign-in).
 - `renderWelcome(user, appUrl)`: fills the HTML template, **HTML-escaping** the user's name.
@@ -494,11 +529,12 @@ Branded templates for OTP, magic link and password recovery, pasted into the App
 
 ## 11. Honest weak spots (have answers ready)
 
-- **No automated tests.** *"First I'd add unit tests for `parseResponse`, `validateTrip`, `legModes`, `fitCandidates` and the reducer. They're pure functions, so they're easy to test."*
+- **Few automated tests.** Only the split maths has tests (`npm test`, Node's built-in runner). *"Next I'd add unit tests for `parseResponse`, `validateTrip`, `legModes`, `fitCandidates` and the reducer. They're pure functions, so they're easy to test."*
 - **In-memory server caches** (directions, Places) live **per server instance**. On serverless they aren't shared and are lost on cold start. *"I'd move them to Redis or a KV store."*
 - **No rate limiting on my own API routes.** Anyone could call `/api/generate` repeatedly. *"Add per-IP or per-user rate limiting (for example Upstash) and require login for heavy use."*
 - **`parseResponse` bracket counting** ignores brackets inside strings and can't close a cut-off string.
 - **Token estimate** is a character-count heuristic, not a real tokenizer.
 - **No streaming.** The user waits for the whole itinerary. *"Stream JSON and render days as they arrive."*
-- **`RoamShell` is large (~660 lines).** *"I'd split it into smaller hooks: `useSavedTrips`, `useArrival`, `useSharing`."*
+- **`RoamShell` is large (~1054 lines).** *"I'd split it into smaller hooks: `useSavedTrips`, `useArrival`, `useSharing`, `useTripSync`."*
+- **Collaborative editing is last-write-wins on one JSON row.** Autosave re-reads the row first and Realtime shows a "Load theirs / Keep mine" banner, but two saves in the same instant can still overwrite each other. *"For real concurrent editing I'd store days and activities as their own rows, or use a CRDT such as Yjs."*
 - Trips list is capped at 100 with no pagination. Photos are matched by Wikipedia title, so some are missing.

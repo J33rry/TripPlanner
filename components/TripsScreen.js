@@ -5,6 +5,7 @@ import Link from "next/link";
 import { tripHref, useRoam } from "./RoamShell";
 import { ChevronIcon, CloseIcon, SearchIcon } from "./icons";
 import { dayCount, destinationLabel, placeTitle } from "@/lib/tripDisplay";
+import { ownsTrip } from "@/lib/tripStore";
 
 const matches = (saved, query) => {
   const haystack = [saved.title, saved.data.destination?.name, saved.data.destination?.country, saved.data.summary]
@@ -60,6 +61,7 @@ export default function TripsScreen() {
           <ul className="trips-list">
             {visible.map((saved, index) => {
               const image = images[placeTitle(saved.data)];
+              const mine = ownsTrip(saved, auth.user?.$id);
               return (
                 <li key={saved.id} onPointerEnter={() => focusSavedTrip(saved.id)} onPointerLeave={() => focusSavedTrip(null)}>
                   <Link
@@ -71,11 +73,20 @@ export default function TripsScreen() {
                     <span className={`trip-card-image tint-${index % 5}`} style={image ? { backgroundImage: `url("${image}")` } : undefined} aria-hidden="true" />
                     <span className="trip-card-text">
                       <strong>{saved.title}</strong>
+                      {!mine && <span className="trip-card-badge">Shared with you</span>}
                       <small>{destinationLabel(saved.data)} · {dayCount(saved.data)}</small>
                     </span>
                     <span className="trip-card-chevron" aria-hidden="true"><ChevronIcon /></span>
                   </Link>
-                  <button type="button" className="icon-button trip-card-delete" onClick={() => deleteSaved(saved.id)} aria-label={`Delete ${saved.title}`}>
+                  <button
+                    type="button"
+                    className="icon-button trip-card-delete"
+                    onClick={() => {
+                      if (mine || window.confirm(`Leave “${saved.title}”? You’ll need a new invite to get back in.`)) deleteSaved(saved.id);
+                    }}
+                    aria-label={mine ? `Delete ${saved.title}` : `Leave ${saved.title}`}
+                    title={mine ? undefined : "Leave trip"}
+                  >
                     <CloseIcon />
                   </button>
                 </li>

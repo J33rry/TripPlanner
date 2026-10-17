@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ID, OAuthProvider } from "appwrite";
-import { appwrite, appwriteConfigured } from "@/lib/appwrite";
+import { appwrite, appwriteConfigured, forgetSessionJwt } from "@/lib/appwrite";
 
 // "Remember me" off: the account session outlives the browser, so a cookie
 // with no expiry marks this browser session; once it's gone we sign out.
@@ -174,6 +174,7 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     await dropSession();
+    forgetSessionJwt();
     try { localStorage.removeItem(SCOPE_KEY); } catch { }
     setUser(null);
     setStatus("guest");

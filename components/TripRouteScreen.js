@@ -32,7 +32,7 @@ export default function TripRouteScreen() {
     return (
       <div className="trip-missing" role="alert">
         <h1>We couldn’t find that trip</h1>
-        <p>It may have been deleted, or saved to a different account.</p>
+        <p>It may have been deleted, saved to a different account, or you’re no longer on it.</p>
         <div className="trip-missing-actions">
           <Link href="/trips" className="dark-pill">See your trips</Link>
           <Link href="/" className="ghost-pill">Plan a new trip</Link>

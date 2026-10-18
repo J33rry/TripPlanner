@@ -353,7 +353,20 @@ Hook state: `user`, `status` ("loading" | "user" | "guest").
 - `routesFor(trip, savedRoutes)`: the routes ready so far, keyed for saving with the trip.
 - Hook: `useMemo(planSegments)`. The effect finds segments not cached and not saved, **debounces 350 ms** (edits like drag-and-drop don't fire a burst), fetches through `limited`, and stores `{status: loading | ready | failed}` in a module-level `routeCache`. It forces a re-render with `setVersion`. Cleanup aborts and removes entries still loading.
 - Returns segments with `route` and `loading`.
-- **Used by:** `RoamShell` (`useDayRoutes`, `routesFor`). Segments go to `TripMap`.
+- **Used by:** `RoamShell` (`useDayRoutes`, `routesFor`) and `useTripSync` (`routesFor`). Segments go to `TripMap`.
+
+### `useTripSync({...})`: live sync for the open saved trip
+Takes `userId`, `trip`/`setTrip`, `openSaved`, `viewOnly`, `rememberSaved`, plus `onRemoved(id)` and `onClose()` for when the trip disappears.
+- `syncing` = saved, signed in, not view-only, trip open. `dirty` = the trip's JSON differs from the saved version's.
+- **Autosave**: an effect waits 1.2 s after the last edit (15 s while saving keeps failing), then `autosaveTrip` re-reads the row with `fetchTrip`. If someone else saved since, it sets `conflict` instead of writing over them.
+- **Realtime**: `watchTrip(id)` → `handleRemoteUpdate`. Its own save echoing back (`inFlightRef`) or a routes-only change is just recorded. A real change applies at once with an "X updated the trip" notice, or becomes a `conflict` if there are unsaved edits. `editorName` caches each team's member list.
+- `loadTheirs` / `keepMine` resolve the banner; `retry` clears an error; `flush()` (called by `closeTrip`) quietly saves last-moment edits and resets everything; `dropTrip(id)` handles a deleted trip or a removed user.
+- A `beforeunload` guard while edits are unsaved. Callbacks read a `syncRef` so timers and subscriptions see fresh values without re-subscribing.
+- **Used by:** `RoamShell`.
+
+### `useTripCollab({...})`: members and expenses for the open trip
+Built on `useTripMembers` and `useTripExpenses`. Returns `members`, `expenses`, `people` (members with the user's own name filled in), `owing(memberId)` (from `netBalances`), `currency`, and the handlers: invite (saves first via `persistTrip`, then `enableCollaboration` + `createInviteLink`), new link, stop inviting, remove member, leave trip, and save/delete expense and change currency.
+- **Used by:** `RoamShell` (People menu and Expenses tab).
 
 ### `usePlaceImages(titles)`
 - Batches up to 50 Wikipedia titles per request (`prop=pageimages`, `redirects=1`) and follows `normalized` and `redirects` so the original title maps to its thumbnail.
@@ -387,7 +400,7 @@ Hook state: `user`, `status` ("loading" | "user" | "guest").
 
 ## 7. Components (`components/`)
 
-### `RoamShell.js` ⭐ the app's brain (≈660 lines)
+### `RoamShell.js` ⭐ the app's brain (≈840 lines)
 Rendered once by the root layout. Owns all shared state and exposes it through **React Context** (`RoamContext`, `useRoam()`).
 
 Module-level helpers:
@@ -535,6 +548,6 @@ Branded templates for OTP, magic link and password recovery, pasted into the App
 - **`parseResponse` bracket counting** ignores brackets inside strings and can't close a cut-off string.
 - **Token estimate** is a character-count heuristic, not a real tokenizer.
 - **No streaming.** The user waits for the whole itinerary. *"Stream JSON and render days as they arrive."*
-- **`RoamShell` is large (~1054 lines).** *"I'd split it into smaller hooks: `useSavedTrips`, `useArrival`, `useSharing`, `useTripSync`."*
+- **`RoamShell` is still large (~840 lines).** Sync and collaboration already moved into `useTripSync` and `useTripCollab`. *"Next I'd pull out `useSavedTrips`, `useArrival` and `useSharing`."*
 - **Collaborative editing is last-write-wins on one JSON row.** Autosave re-reads the row first and Realtime shows a "Load theirs / Keep mine" banner, but two saves in the same instant can still overwrite each other. *"For real concurrent editing I'd store days and activities as their own rows, or use a CRDT such as Yjs."*
 - Trips list is capped at 100 with no pagination. Photos are matched by Wikipedia title, so some are missing.

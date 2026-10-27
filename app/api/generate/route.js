@@ -7,9 +7,11 @@ import { TRIP_JSON_SCHEMA } from "@/lib/tripJsonSchema";
 import { applyCandidates, areasForTrip, extractPlaces, fitCandidates, gatherCandidates, groundingEnabled } from "@/lib/placeCandidates";
 import { reorderTrip } from "@/lib/routeOrder";
 import { classifyRequest, GuardrailError, MAX_EXISTING_TRIP_CHARS, precheck, rejection } from "@/lib/guardrails";
+import { count, instrument, trackedFetch } from "@/lib/metrics";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
+  fetch: trackedFetch("groq"),
 });
 
 // Groq's free tier counts each request as its prompt plus ~5,000 tokens reserved
@@ -35,7 +37,7 @@ async function findCandidates(areas, signal) {
   }
 }
 
-export async function POST(request) {
+async function handle(request) {
   try {
     if (!process.env.GROQ_API_KEY) {
       return Response.json(
@@ -47,6 +49,7 @@ export async function POST(request) {
     const body = await request.json();
     const { userInput, existingTrip, refinement } = body;
     const mode = refinement != null ? "refine" : "create";
+    count(`generate.${mode}`);
 
     const text = precheck(mode === "refine" ? refinement : userInput, mode);
     if (mode === "refine" && (!existingTrip || JSON.stringify(existingTrip).length > MAX_EXISTING_TRIP_CHARS)) {
@@ -119,6 +122,7 @@ export async function POST(request) {
     if (!verdict.allowed) {
       generation.abort();
       console.info(`Guardrail rejected (${mode}, ${verdict.category}): ${verdict.rationale.slice(0, 160)}`);
+      count("generate.guardrail_rejected");
       throw rejection(verdict.category, mode);
     }
 
@@ -135,6 +139,7 @@ export async function POST(request) {
     }
 
     const chatCompletion = await completionPromise;
+    count("generate.tokens", chatCompletion.usage?.total_tokens || 0);
 
     const rawContent = chatCompletion.choices?.[0]?.message?.content;
 
@@ -163,6 +168,7 @@ export async function POST(request) {
 
     const grounding = { candidates: candidates.length, ...applyCandidates(parsed.data, candidates) };
     if (candidates.length) {
+      count("generate.grounded");
       console.info(`Grounding: ${grounding.matched}/${grounding.total} activities matched to candidates`);
     }
     const validated = validateTrip(parsed.data);
@@ -184,6 +190,7 @@ export async function POST(request) {
     const km = (n) => n.toFixed(1);
     console.info(`Route order: ${legs.map((leg) => `day ${leg.day} ${km(leg.beforeKm)} → ${km(leg.afterKm)} km`).join(", ")}`);
 
+    count("generate.succeeded");
     return Response.json({ success: true, data: validated.data, grounding });
   } catch (err) {
     if (err instanceof GuardrailError) {
@@ -235,3 +242,5 @@ export async function POST(request) {
     );
   }
 }
+
+export const POST = instrument("generate", handle);

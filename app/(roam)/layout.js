@@ -1,5 +1,5 @@
 import { Outfit } from "next/font/google";
-import "./globals.css";
+import "../globals.css";
 import RoamShell from "@/components/RoamShell";
 import { THEME_SCRIPT } from "@/lib/theme";
 

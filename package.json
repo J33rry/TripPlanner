@@ -8,6 +8,7 @@
     "gen:land-mask": "node scripts/generate-land-mask.mjs",
     "setup:appwrite": "node scripts/setup-appwrite.mjs",
     "deploy:onboarding": "node scripts/deploy-onboarding.mjs",
+    "seed:admin": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/seed-admin.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test"

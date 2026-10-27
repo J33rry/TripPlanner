@@ -75,6 +75,8 @@ For a production build: `npm run build && npm start`.
 | `APPWRITE_API_KEY` | setup only | server key used only by `npm run setup:appwrite` and `npm run deploy:onboarding`; never shipped to the browser |
 | `APPWRITE_SHARE_API_KEY` | to open share links | server key with only the `rows.read` scope; the `/share/…` page uses it to show a shared trip to people who don't own it |
 | `APPWRITE_COLLAB_API_KEY` | to invite friends | server key with only the `rows.read`, `teams.read` and `teams.write` scopes; `/join/…` uses it to add someone to a trip from its invite link |
+| `APPWRITE_ADMIN_API_KEY` | for the admin page | server key with only the `users.read`, `rows.read` and `rows.write` scopes; turns on the [admin page](#admin) and usage tracking. Without it `/secretadmin` is a 404 and nothing is recorded |
+| `APPWRITE_ADMINS_TABLE_ID` / `APPWRITE_METRICS_TABLE_ID` | no | where admin accounts and usage counts are stored — default `roam_admins` / `roam_metrics` |
 | `ROAM_APP_URL` | for the welcome email | your deployed site; `npm run deploy:onboarding` points the welcome email's "Plan your first trip" button here |
 | `BREVO_SMTP_LOGIN` / `BREVO_SMTP_KEY` / `MAIL_FROM_EMAIL` / `MAIL_FROM_NAME` | no | lets `npm run deploy:onboarding` create or update the Brevo SMTP provider in Appwrite Messaging; leave them out if an email provider is already set up. The from address must be a verified Brevo sender; the name defaults to `Roam` |
 
@@ -112,6 +114,15 @@ Each expense is a row in `roam_expenses`, owned by the trip's team, so everyone 
 
 **Welcome email.** [`appwrite/functions/onboarding-email`](appwrite/functions/onboarding-email) is an Appwrite Function that runs on `users.*.sessions.*.create`. It sends a welcome email the first time a verified user signs in, whichever way they sign in, then adds a server-only `welcomed` label so the email is never sent twice. Accounts older than `WELCOME_MAX_AGE_DAYS` (a function variable, default 7) get the label without the email. To deploy it, give `APPWRITE_API_KEY` the `functions.read/write` and `providers.read/write` scopes, set `ROAM_APP_URL` (plus the Brevo values if Appwrite Messaging doesn't have an email provider yet), and run `npm run deploy:onboarding`. You can run it again safely: it updates the function and provider in place and waits for the build to finish.
 
+<a id="admin"></a>**Admin analytics.** `/secretadmin` is an unlinked, unindexed page for the site's operators: users (total, new, verified), saved, shared and group trips, expenses, requests per API route with success/error counts and average time, a requests-per-day chart, cache hit rates, calls to Groq, Google Places, Google Routes and OpenStreetMap, and trip-generation counts (guardrail blocks, grounding, tokens), for today, 7 days, 30 days or all time. It has its own root layout, so none of its code or its path is in the public bundle.
+
+It asks for a user ID and password. Admin accounts exist only in the `roam_admins` table, which has no permissions, so the site can sign admins in but never create one or change a password: `npm run seed:admin -- <userid>` adds an admin, or sets a new password for one that exists (it asks for it twice, hidden; at least 12 characters), and `npm run seed:admin -- --hash` prints a hash to paste into a row's `passwordHash` by hand. Passwords are scrypt hashes ([`lib/passwordHash.js`](lib/passwordHash.js)). A sign-in is an HttpOnly, `SameSite=Strict` cookie scoped to `/secretadmin` that lasts 8 hours and is signed over the password hash, so changing a password in the database signs that admin out everywhere. Five wrong passwords from one address lock it out for 15 minutes. To turn it on:
+
+1. Create an API key with only the `users.read`, `rows.read` and `rows.write` scopes and set it as `APPWRITE_ADMIN_API_KEY`.
+2. Run `npm run setup:appwrite` again to create `roam_admins` and `roam_metrics`, then `npm run seed:admin -- <userid>`.
+
+Usage is counted by [`lib/metrics.js`](lib/metrics.js): API routes are wrapped with `instrument()`, outside services are called through `trackedFetch()`, and the server caches call `count()`. Counts gather in memory and are added to one `roam_metrics` row per metric per UTC day with Appwrite's atomic increment after the response is sent, so tracking never slows a request. Counting starts when the table exists; earlier traffic isn't known.
+
 Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,000 Nearby Search Pro calls), a personal project costs nothing; setting daily quota caps on both APIs in Google Cloud makes sure of it.
 
 | script | what it does |
@@ -121,6 +132,7 @@ Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,00
 | `npm start` | serve the production build |
 | `npm run lint` | run ESLint |
 | `npm run setup:appwrite` | create the Appwrite database and `roam_trips` table (idempotent; refuses to touch a table it didn't make) |
+| `npm run seed:admin -- <userid>` | add an admin for `/secretadmin`, or set a new password for one |
 | `npm run deploy:onboarding` | deploy the welcome-email Appwrite Function, and the Brevo email provider if configured (idempotent) |
 | `npm run gen:land-mask` | regenerate `lib/landMask.js`, the globe's land-dot bitmask, from Natural Earth data |
 

@@ -1,4 +1,4 @@
-// Creates the database and tables Roam saves trips and expenses to. Safe to re-run.
+// Creates the database and tables Roam saves trips, expenses, admin accounts and usage metrics to. Safe to re-run.
 //
 //   APPWRITE_API_KEY=<key with databases.read/write, tables.read/write, columns.read/write> npm run setup:appwrite
 //
@@ -15,6 +15,8 @@ const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
 const databaseId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || "roam";
 const tableId = process.env.NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID || "roam_trips";
 const expensesTableId = process.env.NEXT_PUBLIC_APPWRITE_EXPENSES_TABLE_ID || "roam_expenses";
+const adminsTableId = process.env.APPWRITE_ADMINS_TABLE_ID || "roam_admins";
+const metricsTableId = process.env.APPWRITE_METRICS_TABLE_ID || "roam_metrics";
 const apiKey = process.env.APPWRITE_API_KEY;
 
 if (!projectId || !apiKey) {
@@ -115,6 +117,44 @@ await ensure("expense column updatedBy", () => tables.createVarcharColumn({ ...e
 await waitForColumn("tripId", expensesTableId);
 await ensure("expense index tripId", () =>
   tables.createIndex({ ...expenses, key: "tripId", type: TablesDBIndexType.Key, columns: ["tripId"] })
+);
+
+// The admin page's tables. No permissions at all: only server keys can read or
+// write them, so admin accounts can't be listed, created or changed from the site.
+function ensureOwnColumns(table, id, known, envName) {
+  const foreignColumns = table.columns.map((column) => column.key).filter((key) => !known.includes(key));
+  if (!foreignColumns.length) return;
+  console.error(`✗ table "${id}" already exists with other columns (${foreignColumns.join(", ")}) — it belongs to something else.`);
+  console.error(`  Set ${envName} to an unused ID and run this again.`);
+  process.exit(1);
+}
+
+// Admin accounts, added with `npm run seed:admin`. Passwords are scrypt hashes (lib/passwordHash.js).
+await ensure(`table "${adminsTableId}"`, () =>
+  tables.createTable({ databaseId, tableId: adminsTableId, name: "Roam admins", rowSecurity: false, permissions: [] })
+);
+ensureOwnColumns(await tables.getTable({ databaseId, tableId: adminsTableId }), adminsTableId, ["username", "passwordHash", "lastLoginAt"], "APPWRITE_ADMINS_TABLE_ID");
+const admins = { databaseId, tableId: adminsTableId };
+await ensure("admin column username", () => tables.createVarcharColumn({ ...admins, key: "username", size: 64, required: true }));
+await ensure("admin column passwordHash", () => tables.createVarcharColumn({ ...admins, key: "passwordHash", size: 256, required: true }));
+await ensure("admin column lastLoginAt", () => tables.createDatetimeColumn({ ...admins, key: "lastLoginAt", required: false }));
+await waitForColumn("username", adminsTableId);
+await ensure("admin index username", () =>
+  tables.createIndex({ ...admins, key: "username", type: TablesDBIndexType.Unique, columns: ["username"] })
+);
+
+// Usage counters for the admin page: one row per metric per UTC day (lib/metrics.js).
+await ensure(`table "${metricsTableId}"`, () =>
+  tables.createTable({ databaseId, tableId: metricsTableId, name: "Roam metrics", rowSecurity: false, permissions: [] })
+);
+ensureOwnColumns(await tables.getTable({ databaseId, tableId: metricsTableId }), metricsTableId, ["day", "metric", "count"], "APPWRITE_METRICS_TABLE_ID");
+const metrics = { databaseId, tableId: metricsTableId };
+await ensure("metric column day", () => tables.createVarcharColumn({ ...metrics, key: "day", size: 10, required: true }));
+await ensure("metric column metric", () => tables.createVarcharColumn({ ...metrics, key: "metric", size: 96, required: true }));
+await ensure("metric column count", () => tables.createIntegerColumn({ ...metrics, key: "count", required: false, min: 0, xdefault: 0 }));
+await waitForColumn("day", metricsTableId);
+await ensure("metric index day", () =>
+  tables.createIndex({ ...metrics, key: "day", type: TablesDBIndexType.Key, columns: ["day"] })
 );
 
 console.log("Appwrite is ready for Roam.");

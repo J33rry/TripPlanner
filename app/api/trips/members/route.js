@@ -1,7 +1,8 @@
 import { CollabError, listTripMembers } from "@/lib/collab";
+import { instrument } from "@/lib/metrics";
 
 // POST { teamId, jwt } — who's on a trip, for someone on it (the jwt proves who's asking).
-export async function POST(request) {
+async function handle(request) {
   let body;
   try {
     body = await request.json();
@@ -16,3 +17,5 @@ export async function POST(request) {
     return Response.json({ error: "Couldn’t load who’s on this trip." }, { status: 500 });
   }
 }
+
+export const POST = instrument("trips_members", handle);

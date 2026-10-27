@@ -1,7 +1,8 @@
 import { CollabError, joinTrip } from "@/lib/collab";
+import { instrument } from "@/lib/metrics";
 
 // POST { inviteId, jwt } — the jwt (from account.createJWT) proves who is joining.
-export async function POST(request) {
+async function handle(request) {
   let body;
   try {
     body = await request.json();
@@ -17,3 +18,5 @@ export async function POST(request) {
     return Response.json({ error: "Couldn’t join the trip. Try again in a moment." }, { status: 500 });
   }
 }
+
+export const POST = instrument("trips_join", handle);

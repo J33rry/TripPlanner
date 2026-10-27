@@ -1,5 +1,7 @@
 // Routes each map leg along real streets: Google Routes API first (when a server
 // key is set), the community OSRM server as a fallback.
+import { count, instrument, trackedFetch } from "@/lib/metrics";
+
 const PROFILES = {
   foot: { google: "WALK", osm: "routed-foot" },
   bike: { google: "BICYCLE", osm: "routed-bike" },
@@ -18,6 +20,9 @@ const GOOGLE_CHUNK_POINTS = 12;
 const GOOGLE_BACKOFF_MS = 10 * 60 * 1000;
 let googleBlockedUntil = 0;
 
+const googleFetch = trackedFetch("google_routes");
+const osmFetch = trackedFetch("osm");
+
 const pause = () => new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
 
 function googleKey() {
@@ -26,7 +31,7 @@ function googleKey() {
 
 async function googleChunk(points, travelMode, key) {
   const waypoint = ([lng, lat]) => ({ location: { latLng: { latitude: lat, longitude: lng } } });
-  const response = await fetch(GOOGLE_URL, {
+  const response = await googleFetch(GOOGLE_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -79,7 +84,7 @@ async function googleRoute(coordinates, profile) {
 }
 
 const osmAttempt = (url) =>
-  fetch(url, {
+  osmFetch(url, {
     headers: { "User-Agent": "Roam trip planner (itinerary route preview)" },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
@@ -124,7 +129,7 @@ function isValidPoint(point) {
   );
 }
 
-export async function POST(request) {
+async function handle(request) {
   let body;
   try {
     body = await request.json();
@@ -150,7 +155,11 @@ export async function POST(request) {
 
   const path = coordinates.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(";");
   const key = `${profile}:${path}`;
-  if (cache.has(key)) return Response.json(cache.get(key));
+  if (cache.has(key)) {
+    count("cache.directions.hit");
+    return Response.json(cache.get(key));
+  }
+  count("cache.directions.miss");
 
   let route = null;
   try {
@@ -165,9 +174,12 @@ export async function POST(request) {
     return Response.json({ error: "Routing service unavailable." }, { status: 502 });
   }
   if (!route) return Response.json({ error: "No route found." }, { status: 502 });
+  count(`directions.source.${route.source}`);
 
   const result = { profile, ...route };
   if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
   cache.set(key, result);
   return Response.json(result);
 }
+
+export const POST = instrument("directions", handle);

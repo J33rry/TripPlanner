@@ -558,6 +558,12 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
 .hero-text { min-width: 0; }
 .hero-text h1 { margin: 0 0 4px; font-family: var(--font-display), var(--font-body); font-size: 32px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; }
 .hero-meta { margin: 0; color: var(--ink-2); font-size: 18px; }
+.trip-name-button { display: inline; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; cursor: text; }
+.trip-name-tail { white-space: nowrap; }
+.trip-name-button svg { display: inline-block; width: 18px; height: 18px; margin-left: 8px; vertical-align: 0.05em; color: var(--ink-2); transition: color 0.15s; }
+.trip-name-button:hover svg, .trip-name-button:focus-visible svg { color: var(--ink); }
+.trip-name-edit { margin: 0 0 4px; }
+.trip-name-edit input { width: 100%; margin: -3px 0 -3px -8px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--field); color: var(--ink); font-family: var(--font-display), var(--font-body); font-size: 32px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; }
 .trip-summary { margin: 0 0 18px; color: var(--ink-2); font-size: 14.5px; line-height: 1.55; }
 .itinerary-wrap { transition: opacity 0.3s; }
 .itinerary-wrap.is-refreshing { opacity: 0.5; pointer-events: none; }
@@ -640,6 +646,33 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
 
 @keyframes fade-in { from { opacity: 0; } }
 
+/* ── 404 (app/global-not-found.js) ───────────────────────────────────────── */
+:root { --nf-halo: rgba(206, 186, 248, 0.36); --nf-orbit: #b07cf2; --nf-node: #fff; }
+:root[data-theme="dark"] { --nf-halo: rgba(150, 110, 250, 0.28); --nf-orbit: #a57af0; --nf-node: #f3ecff; }
+.nf-page { min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; background: radial-gradient(ellipse 60% 55% at 50% 38%, var(--accent-wash), transparent 70%), var(--bg); }
+.nf-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: var(--header-h); padding: 0 40px; }
+.nf-page a { color: var(--ink); text-decoration: none; }
+.nf-page a.dark-pill { color: var(--on-dark); }
+.nf-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 20px 48px; text-align: center; }
+.nf-moon-wrap { width: min(560px, 88vw, 62svh - 60px); min-width: 240px; aspect-ratio: 1; margin-top: -12px; animation: nf-float 9s ease-in-out infinite; }
+.nf-moon { position: relative; width: 100%; height: 100%; }
+.nf-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.nf-halo { fill: var(--nf-halo); filter: blur(28px); }
+/* 196 / 640 of the orbit viewBox. The base is lit from the upper right and stays put while the surface turns. */
+.nf-sphere { position: absolute; left: 19.375%; top: 19.375%; width: 61.25%; height: 61.25%; overflow: hidden; border-radius: 50%; background: radial-gradient(circle at 66% 30%, #fdfdfe 0%, #e9e8ec 30%, #cfcdd4 62%, #a9a7b0 100%); box-shadow: 0 22px 50px rgba(60, 40, 110, 0.16); }
+.nf-surface { position: absolute; inset: 0; width: 100%; height: 100%; }
+.nf-sphere-shade { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 68% 28%, rgba(255, 255, 255, 0.28) 0%, transparent 38%, rgba(48, 42, 64, 0.1) 70%, rgba(36, 30, 52, 0.36) 100%); box-shadow: inset -14px -20px 44px rgba(40, 32, 60, 0.2), inset 8px 8px 26px rgba(255, 255, 255, 0.55); }
+.nf-orbit { fill: none; stroke: var(--nf-orbit); stroke-width: 1.2; opacity: 0.6; }
+.nf-rider { fill: var(--nf-node); }
+.nf-eyebrow { margin: 6px 0 0; color: var(--accent-ink); font-size: 14px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; }
+.nf-title { margin: 14px 0 0; font-family: var(--font-display), var(--font-body); font-size: clamp(32px, 5.4vw, 58px); font-weight: 500; line-height: 1.08; letter-spacing: -0.02em; }
+.nf-sub { margin: 12px 0 0; color: var(--muted); font-size: clamp(16px, 1.6vw, 19px); }
+.nf-cta { height: 54px; margin-top: 30px; padding: 0 26px 0 30px; gap: 14px; font-size: 17px; }
+@keyframes nf-float { 50% { transform: translateY(-8px); } }
+@media (max-width: 899px) {
+  .nf-header { padding: 0 16px; }
+}
+
 /* ── Dark theme one-offs ─────────────────────────────────────────────────── */
 :root[data-theme="dark"] { --thinking-ink: #c4abf7; }
 [data-theme="dark"] .auth-check input:checked { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231f1e24' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
@@ -701,6 +734,8 @@ button.account-avatar:hover, .account-login:hover .account-avatar { background: 
   .trip-hero { gap: 14px; }
   .hero-image { flex-basis: 96px; height: 74px; }
   .hero-text h1 { font-size: 24px; }
+  .trip-name-edit input { font-size: 24px; }
+  .trip-name-button svg { width: 15px; height: 15px; }
   .hero-meta { font-size: 15px; }
   .map-controls { top: 14px; left: 14px; }
   .map-controls button { width: 38px; height: 38px; }

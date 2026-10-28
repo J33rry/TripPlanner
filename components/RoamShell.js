@@ -10,6 +10,7 @@ import IntroSplash from "./IntroSplash";
 import ItineraryView from "./ItineraryView";
 import RefineInput from "./RefineInput";
 import TripMap from "./TripMap";
+import TripName from "./TripName";
 import Wordmark from "./Wordmark";
 import AccountMenu from "./AccountMenu";
 import MembersMenu from "./MembersMenu";
@@ -146,7 +147,7 @@ export default function RoamShell({ children }) {
   const auth = useAuth();
   const userId = auth.user?.$id ?? null;
 
-  const { trip, setTrip, toggleActivity, deleteActivity, deleteDay, editActivity, reorderActivities, reorderDays, togglePackingItem, clearTrip } = useTripState();
+  const { trip, setTrip, renameTrip, toggleActivity, deleteActivity, deleteDay, editActivity, reorderActivities, reorderDays, togglePackingItem, clearTrip } = useTripState();
   const [view, setView] = useState("globe");
   const [intro, setIntro] = useState({ phase: "splash", from: null });
   const [savedTrips, setSavedTrips] = useState([]);
@@ -247,7 +248,9 @@ export default function RoamShell({ children }) {
   const { loading, error, generate, cancel, clearError } = useGenerateTrip(
     useCallback((data) => {
       if (viewRef.current === "trip" && tripRef.current) {
-        setTrip({ ...data, tripId: tripRef.current.tripId });
+        // A name the user picked outlives the AI's new one.
+        const { tripId, tripTitle, titleEdited } = tripRef.current;
+        setTrip({ ...data, tripId, ...(titleEdited && { tripTitle, titleEdited }) });
       } else {
         openTrip(data);
       }
@@ -310,6 +313,7 @@ export default function RoamShell({ children }) {
     const cleanTrip = {
       ...trip,
       tripId: undefined,
+      titleEdited: undefined,
       packingList: trip.packingList?.map((item) => (typeof item === "object" ? item.text : item)),
       stops: trip.stops.map((stop) => ({
         ...stop,
@@ -730,8 +734,9 @@ export default function RoamShell({ children }) {
                 <header className="trip-hero">
                   <div className="hero-image" style={images[placeTitle(trip)] ? { backgroundImage: `url("${images[placeTitle(trip)]}")` } : undefined} aria-hidden="true" />
                   <div className="hero-text">
-                    <h1>{destinationLabel(trip)}</h1>
+                    <TripName key={trip.tripId} title={trip.tripTitle} readOnly={viewOnly} onRename={renameTrip} />
                     <p className="hero-meta">
+                      {trip.destination?.name && <>{destinationLabel(trip)} · </>}
                       {dayCount(trip)}
                       {trip.totalBudgetEstimate && <> · {trip.totalBudgetEstimate}</>}
                     </p>

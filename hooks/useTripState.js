@@ -4,6 +4,7 @@ import { useReducer, useCallback } from "react";
 
 const ACTIONS = {
   SET_TRIP: "SET_TRIP",
+  RENAME_TRIP: "RENAME_TRIP",
   TOGGLE_ACTIVITY: "TOGGLE_ACTIVITY",
   DELETE_ACTIVITY: "DELETE_ACTIVITY",
   DELETE_DAY: "DELETE_DAY",
@@ -31,6 +32,10 @@ function tripReducer(state, action) {
           typeof item === "string" ? { text: item, checked: false } : item
         ),
       };
+
+    // Marked so refining the trip with AI keeps the name the user chose.
+    case ACTIONS.RENAME_TRIP:
+      return { ...state, tripTitle: action.payload.title, titleEdited: true };
 
     case ACTIONS.TOGGLE_ACTIVITY: {
       const { dayId, activityId } = action.payload;
@@ -135,6 +140,11 @@ export function useTripState() {
     []
   );
 
+  const renameTrip = useCallback(
+    (title) => dispatch({ type: ACTIONS.RENAME_TRIP, payload: { title } }),
+    []
+  );
+
   const toggleActivity = useCallback(
     (dayId, activityId) =>
       dispatch({
@@ -197,6 +207,7 @@ export function useTripState() {
   return {
     trip,
     setTrip,
+    renameTrip,
     toggleActivity,
     deleteActivity,
     deleteDay,

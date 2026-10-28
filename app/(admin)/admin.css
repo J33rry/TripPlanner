@@ -72,6 +72,15 @@
 .admin-bar:hover .admin-tooltip, .admin-bar:focus-visible .admin-tooltip { opacity: 1; }
 .admin-chart-axis { display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 12px; }
 
+/* Google free tier: share of each SKU's monthly cap. */
+.admin-quota-free { display: block; color: var(--muted); font-size: 12px; }
+.admin-quota-col { width: 180px; }
+.admin-quota { display: inline-flex; align-items: center; gap: 8px; }
+.admin-quota-track { display: inline-block; width: 110px; height: 6px; overflow: hidden; background: var(--line); border-radius: 999px; }
+.admin-quota-track span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.admin-quota[data-paused] .admin-quota-track span { background: var(--rose); }
+.admin-quota-paused { color: var(--rose); font-weight: 500; }
+
 .admin-footnote { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
 @media (max-width: 640px) {

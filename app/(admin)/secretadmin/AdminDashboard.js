@@ -5,6 +5,7 @@ import { logout } from "./actions";
 const ROUTES = [
   ["generate", "/api/generate", "Plan & refine trips"],
   ["directions", "/api/directions", "Map routes"],
+  ["maps_load", "/api/maps/load", "Trip map load check"],
   ["trips_join", "/api/trips/join", "Join from invite link"],
   ["trips_members", "/api/trips/members", "List trip members"],
 ];
@@ -22,6 +23,7 @@ const SERVICES = [
 const numberFormat = new Intl.NumberFormat("en");
 const fmt = (n) => (n == null ? "—" : numberFormat.format(n));
 const pct = (part, whole) => (whole ? `${Math.round((part / whole) * 100)}%` : "—");
+const monthLabel = (month) => new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en", { month: "long", year: "numeric", timeZone: "UTC" });
 const dayLabel = (day) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
 function Stat({ label, value, note }) {
@@ -68,6 +70,59 @@ function RequestsChart({ series }) {
         <span>{series.length > 1 ? dayLabel(series.at(-1).day) : "UTC"}</span>
       </figcaption>
     </figure>
+  );
+}
+
+function GoogleQuota({ google }) {
+  const capped = google.capPercent != null;
+  return (
+    <Section
+      title={`Google free tier · ${monthLabel(google.month)}`}
+      note={capped ? `Each API pauses at ${google.capPercent}% of its free allowance until the month turns (UTC)` : "Capping is off (GOOGLE_FREE_TIER_CAP=off): usage is counted, never stopped"}
+    >
+      {!google.tracked && (
+        <p className="admin-banner" role="status">
+          This month’s Google usage couldn’t be read, so nothing is being paused yet.
+        </p>
+      )}
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th scope="col">SKU</th>
+              <th scope="col">Used</th>
+              <th scope="col">Cap</th>
+              <th scope="col" className="admin-quota-col">Of cap</th>
+              <th scope="col">Skipped</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {google.skus.map((sku) => {
+              const share = capped && sku.used != null ? Math.min(1, sku.limit ? sku.used / sku.limit : 1) : null;
+              const paused = capped && sku.used != null && sku.used >= sku.limit;
+              return (
+                <tr key={sku.key}>
+                  <th scope="row">{sku.name}<span>{sku.api} · {sku.use}</span></th>
+                  <td>{fmt(sku.used)}</td>
+                  <td>{capped ? fmt(sku.limit) : "—"}<span className="admin-quota-free">of {fmt(sku.free)} free</span></td>
+                  <td className="admin-quota-col">
+                    {share == null ? "—" : (
+                      <span className="admin-quota" data-paused={paused || undefined}>
+                        <span className="admin-quota-track"><span style={{ width: `${share * 100}%` }} /></span>
+                        {Math.round(share * 100)}%
+                      </span>
+                    )}
+                  </td>
+                  <td>{fmt(sku.blocked)}</td>
+                  <td className={paused ? "admin-quota-paused" : undefined}>{paused ? `Paused · ${sku.paused}` : "Active"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Section>
   );
 }
 
@@ -124,6 +179,8 @@ export default function AdminDashboard({ admin, data }) {
         <Stat label="API requests" value={fmt(apiTotal)} note={`${fmt(plans)} plans & refinements`} />
         <Stat label="Cache hit rate" value={pct(cacheHits, cacheLookups)} note={`${fmt(cacheHits)} of ${fmt(cacheLookups)} lookups`} />
       </div>
+
+      <GoogleQuota google={data.google} />
 
       <Section title="API requests per day" note={data.range.days ? undefined : "The last 30 days"}>
         <RequestsChart series={data.series} />

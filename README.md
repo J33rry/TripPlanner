@@ -69,6 +69,7 @@ For a production build: `npm run build && npm start`.
 | `GOOGLE_MAPS_API_KEY` | no | server key for Google Places API (New), used for [place grounding](#reliability), and the Routes API, which draws map legs along streets; without it Roam plans from the model's own knowledge and routes with OpenStreetMap |
 | `PLACE_GROUNDING` | no | set to `off` to disable place grounding even when a Google key is present |
 | `GOOGLE_ROUTING` | no | set to `off` to route with OpenStreetMap even when a Google key is present |
+| `GOOGLE_FREE_TIER_CAP` | no | percentage of each Google SKU's free monthly allowance to stop at (default `90`), or `off` to count without stopping — see [admin analytics](#admin) |
 | `NEXT_PUBLIC_APPWRITE_PROJECT_ID` | to save trips | Appwrite project for accounts (email + Google) and saved trips; without it anyone can still plan trips, but saving is off |
 | `NEXT_PUBLIC_APPWRITE_ENDPOINT` | no | defaults to `https://cloud.appwrite.io/v1`; set it to your region's endpoint (e.g. `https://fra.cloud.appwrite.io/v1`) |
 | `NEXT_PUBLIC_APPWRITE_DATABASE_ID` / `NEXT_PUBLIC_APPWRITE_TRIPS_TABLE_ID` / `NEXT_PUBLIC_APPWRITE_EXPENSES_TABLE_ID` | no | where trips and expenses are stored — default `roam` / `roam_trips` / `roam_expenses`; pick IDs no other app uses if the database is shared |
@@ -123,7 +124,7 @@ It asks for a user ID and password. Admin accounts exist only in the `roam_admin
 
 Usage is counted by [`lib/metrics.js`](lib/metrics.js): API routes are wrapped with `instrument()`, outside services are called through `trackedFetch()`, and the server caches call `count()`. Counts gather in memory and are added to one `roam_metrics` row per metric per UTC day with Appwrite's atomic increment after the response is sent, so tracking never slows a request. Counting starts when the table exists; earlier traffic isn't known.
 
-Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,000 Nearby Search Pro calls), a personal project costs nothing; setting daily quota caps on both APIs in Google Cloud makes sure of it.
+Within Google's free monthly allowances (10,000 map loads for Dynamic Maps, 5,000 each for Text Search Pro and Nearby Search Pro, 10,000 Compute Routes Essentials calls), a personal project costs nothing. With the admin key set, Roam counts every call per SKU ([`lib/googleQuota.js`](lib/googleQuota.js)) and pauses a SKU once it reaches `GOOGLE_FREE_TIER_CAP` (90% by default) of its allowance, until the month turns (UTC): routing falls back to OpenStreetMap, trips plan without place grounding, and the trip map shows its "couldn't load" notice. The admin page shows each SKU's usage this month. Those counts are best effort and the browser key is public, so also set daily quota caps on each API in Google Cloud as a hard stop.
 
 | script | what it does |
 | --- | --- |

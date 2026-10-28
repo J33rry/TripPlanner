@@ -1,5 +1,7 @@
 // Routes each map leg along real streets: Google Routes API first (when a server
-// key is set), the community OSRM server as a fallback.
+// key is set and this month's free allowance isn't used up), the community OSRM
+// server as a fallback.
+import { claimFreeQuota } from "@/lib/googleQuota";
 import { count, instrument, trackedFetch } from "@/lib/metrics";
 
 const PROFILES = {
@@ -72,6 +74,8 @@ async function googleRoute(coordinates, profile) {
   for (let i = 0; i < coordinates.length - 1; i += GOOGLE_CHUNK_POINTS - 1) {
     chunks.push(coordinates.slice(i, i + GOOGLE_CHUNK_POINTS));
   }
+  // Each chunk is a billable request.
+  if (!(await claimFreeQuota("routes", chunks.length))) return null;
   const parts = await Promise.all(chunks.map((points) => googleChunk(points, PROFILES[profile].google, key)));
   if (parts.some((part) => !part)) return null;
   return {

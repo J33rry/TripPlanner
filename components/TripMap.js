@@ -27,6 +27,13 @@ function loadGoogleMaps() {
   return Promise.all([importLibrary("maps"), importLibrary("marker")]);
 }
 
+// Each new map is a billable load, so the server is asked first. It says no once
+// this month's free allowance is used up; any other answer, or none, lets the map load.
+const mapPermit = () =>
+  fetch("/api/maps/load", { method: "POST" })
+    .then((response) => response.json())
+    .then((body) => body?.allowed !== false, () => true);
+
 // Google reports a rejected key (wrong API, referrer not allowed) through this global hook.
 const authFailureListeners = new Set();
 if (typeof window !== "undefined") {
@@ -167,9 +174,13 @@ export default function TripMap({
     };
     authFailureListeners.add(fail);
 
-    loadGoogleMaps()
-      .then(([maps, marker]) => {
+    Promise.all([loadGoogleMaps(), mapPermit()])
+      .then(([[maps, marker], allowed]) => {
         if (cancelled) return;
+        if (!allowed) {
+          console.info("The trip map is off until next month: Google's free map loads are used up.");
+          return fail();
+        }
         libRef.current = { Polyline: maps.Polyline, AdvancedMarkerElement: marker.AdvancedMarkerElement };
 
         // Start exactly where the globe's arrival dive ends: same centre, same scale.

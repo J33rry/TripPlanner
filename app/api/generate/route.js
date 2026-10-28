@@ -7,6 +7,7 @@ import { TRIP_JSON_SCHEMA } from "@/lib/tripJsonSchema";
 import { applyCandidates, areasForTrip, extractPlaces, fitCandidates, gatherCandidates, groundingEnabled } from "@/lib/placeCandidates";
 import { reorderTrip } from "@/lib/routeOrder";
 import { classifyRequest, GuardrailError, MAX_EXISTING_TRIP_CHARS, precheck, rejection } from "@/lib/guardrails";
+import { hasFreeQuota } from "@/lib/googleQuota";
 import { count, instrument, trackedFetch } from "@/lib/metrics";
 
 const groq = new Groq({
@@ -97,7 +98,10 @@ async function handle(request) {
     // Without grounding, generation starts alongside the guardrail check. With it,
     // the guardrail runs alongside place extraction, and places are only looked up
     // (and generation started) once the request is known to be about travel.
-    const grounded = groundingEnabled();
+    // Grounding is skipped once Google's free Places allowance for the month is used up.
+    const grounded =
+      groundingEnabled() &&
+      (await hasFreeQuota(...(mode === "create" ? ["places_text", "places_nearby"] : ["places_nearby"])));
     const extraction =
       grounded && mode === "create"
         ? extractPlaces(groq, text, { signal }).catch((err) => {
